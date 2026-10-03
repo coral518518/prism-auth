@@ -9,6 +9,8 @@ import {
   invalidateJwtSecretCache,
 } from "../worker/lib/config";
 import { getMLDSAKey, invalidateMLDSAKeyCache } from "../worker/lib/mldsa";
+import { isUserLocked } from "../worker/lib/lockdown";
+import { invalidateLoggingFlagsCache } from "../worker/lib/logger";
 
 class MockD1Statement {
   private values: unknown[] = [];
@@ -150,5 +152,20 @@ describe("Free Tier Optimizations & Security Fixes", () => {
     expect(key2.kid).toBe(key1.kid);
     expect(kv.getCount).toBe(1);
     expect(kv.putCount).toBe(1);
+  });
+
+  test("isUserLocked correctly identifies locked accounts", () => {
+    const env = {
+      LOCKDOWN_USERS: "admin,root;security_operator",
+    } as unknown as Env;
+
+    expect(isUserLocked(env, "admin")).toBe(true);
+    expect(isUserLocked(env, "root")).toBe(true);
+    expect(isUserLocked(env, "security_operator")).toBe(true);
+    expect(isUserLocked(env, "regular_user")).toBe(false);
+  });
+
+  test("invalidateLoggingFlagsCache executes cleanly", () => {
+    expect(() => invalidateLoggingFlagsCache()).not.toThrow();
   });
 });

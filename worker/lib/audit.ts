@@ -74,34 +74,42 @@ export async function recordAudit(
   opts: { awaitDelivery?: boolean } = {},
 ): Promise<void> {
   const list = Array.isArray(inputs) ? inputs : [inputs];
+  if (list.length === 0) return;
   const now = Math.floor(Date.now() / 1000);
   try {
-    for (const input of list) {
+    const prepared = list.map((input) => {
       const id = randomId();
-      await env.DB.prepare(
+      const stmt = env.DB.prepare(
         `INSERT INTO audit_events
            (id, scope, scope_id, action, actor_id, actor_name, resource_type,
             resource_id, resource_name, ip, user_agent, ip_geo, metadata, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-        .bind(
-          id,
-          input.scope,
-          input.scopeId ?? null,
-          input.action,
-          input.actorId ?? null,
-          input.actorName ?? null,
-          input.resourceType ?? null,
-          input.resourceId ?? null,
-          input.resourceName ?? null,
-          input.ip ?? null,
-          input.userAgent ?? null,
-          input.geo ?? null,
-          JSON.stringify(input.metadata ?? {}),
-          now,
-        )
-        .run();
+      ).bind(
+        id,
+        input.scope,
+        input.scopeId ?? null,
+        input.action,
+        input.actorId ?? null,
+        input.actorName ?? null,
+        input.resourceType ?? null,
+        input.resourceId ?? null,
+        input.resourceName ?? null,
+        input.ip ?? null,
+        input.userAgent ?? null,
+        input.geo ?? null,
+        JSON.stringify(input.metadata ?? {}),
+        now,
+      );
+      return { id, input, stmt };
+    });
 
+    if (prepared.length === 1) {
+      await prepared[0].stmt.run();
+    } else {
+      await env.DB.batch(prepared.map((p) => p.stmt));
+    }
+
+    for (const { id, input } of prepared) {
       const delivery = deliverAuditWebhooks(env, {
         ...input,
         id,

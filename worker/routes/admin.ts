@@ -27,7 +27,7 @@ import {
   inviteEmailTemplate,
   sendEmail,
 } from "../lib/email";
-import { loggedFetch } from "../lib/logger";
+import { loggedFetch, invalidateLoggingFlagsCache } from "../lib/logger";
 import { verifyAnyTotp } from "../lib/totp";
 import { PRISM_INTERNAL_CLIENT_ID, grantSudo, isSudoActive } from "../lib/sudo";
 import { requireAdmin } from "../middleware/auth";
@@ -1843,6 +1843,7 @@ app.post("/reset/confirm", async (c) => {
   invalidateJwtSecretCache();
   invalidateRsaKeyPairCache();
   invalidateMLDSAKeyCache();
+  invalidateLoggingFlagsCache();
 
   return c.json({ message: "Platform reset complete" });
 });
@@ -2928,6 +2929,7 @@ app.post("/debug", async (c) => {
         : c.env.KV_SESSIONS.delete("system:log_ip")
       : Promise.resolve(),
   ]);
+  invalidateLoggingFlagsCache();
 
   return c.json({ ok: true });
 });

@@ -1140,6 +1140,18 @@ app.post("/passkey/register/finish", requireAuth, async (c) => {
 // ─── Passkey authentication ──────────────────────────────────────────────────
 
 app.post("/passkey/auth/begin", async (c) => {
+  const ip = getIp(c);
+  const config = await getConfig(c.env.DB);
+  const rl = await rateLimitIp(
+    c.env.DB,
+    ip,
+    "passkey-auth-begin",
+    30,
+    60,
+    config.ipv6_rate_limit_prefix,
+  );
+  if (!rl.allowed) return c.json({ error: "Too many requests" }, 429);
+
   const rpId = new URL(c.env.APP_URL).hostname;
 
   const body = await c.req
@@ -1179,6 +1191,18 @@ app.post("/passkey/auth/begin", async (c) => {
 });
 
 app.post("/passkey/auth/finish", async (c) => {
+  const ip = getIp(c);
+  const config = await getConfig(c.env.DB);
+  const rl = await rateLimitIp(
+    c.env.DB,
+    ip,
+    "passkey-auth-finish",
+    30,
+    60,
+    config.ipv6_rate_limit_prefix,
+  );
+  if (!rl.allowed) return c.json({ error: "Too many requests" }, 429);
+
   const rpId = new URL(c.env.APP_URL).hostname;
   const origin = c.env.APP_URL;
 
@@ -1235,7 +1259,6 @@ app.post("/passkey/auth/finish", async (c) => {
   if (!user || !user.is_active)
     return c.json({ error: "Account not found or disabled" }, 400);
 
-  const config = await getConfig(c.env.DB);
   const ttl = config.session_ttl_days * 24 * 60 * 60;
   // Passkey sign-in is a hardware/software cryptographic authenticator.
   await issueSession(c, user, ttl, ["webauthn"]);

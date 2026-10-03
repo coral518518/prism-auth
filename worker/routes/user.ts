@@ -17,7 +17,12 @@ import {
   randomBase64url,
 } from "../lib/crypto";
 import { requireAuth } from "../middleware/auth";
-import { readSessionCookie, setSessionCookie } from "../lib/cookies";
+import {
+  readSessionCookie,
+  setSessionCookie,
+  clearSessionCookie,
+} from "../lib/cookies";
+import { isUserLocked } from "../lib/lockdown";
 import {
   proxyImageUrl,
   registerMarkdownImageMappings,
@@ -443,6 +448,12 @@ app.post("/me/change-password", async (c) => {
     .bind(hash, Math.floor(Date.now() / 1000), user.id)
     .run();
 
+  // NIST SP 800-63B §5.1.1.2: Revoke all other active sessions for this user upon password change
+  const currentSessionId = c.get("sessionId");
+  await c.env.DB.prepare("DELETE FROM sessions WHERE user_id = ? AND id != ?")
+    .bind(user.id, currentSessionId ?? "")
+    .run();
+
   return c.json({ message: "Password updated" });
 });
 
@@ -631,6 +642,13 @@ app.delete("/me", async (c) => {
     .first<UserRow>();
   if (!row) return c.json({ error: "User not found" }, 404);
 
+  if (isUserLocked(c.env, row.username)) {
+    return c.json(
+      { error: "User is protected from deletion by LOCKDOWN_USERS" },
+      403,
+    );
+  }
+
   if (row.password_hash) {
     if (!body.password) return c.json({ error: "password required" }, 400);
     const ok = await verifyPassword(body.password, row.password_hash);
@@ -651,6 +669,7 @@ app.delete("/me", async (c) => {
   );
 
   await c.env.DB.prepare("DELETE FROM users WHERE id = ?").bind(user.id).run();
+  clearSessionCookie(c);
   // Avatar + every README image just lost their owning row — sweep so
   // those URLs stop being servable instead of waiting for the next cron.
   c.executionCtx.waitUntil(

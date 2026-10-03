@@ -225,8 +225,27 @@ function methodFromRequest(req: Request): string {
   return req.method.toUpperCase();
 }
 
+const FLAG_TTL_MS = 60_000; // re-check KV every 60 seconds (optimised for Cloudflare Free Tier KV limits)
+
+let cachedOutboundLogging: boolean | null = null;
+let cachedOutboundLoggingKv: KVNamespace | null = null;
+let cachedOutboundLoggingExpiry = 0;
+
 async function isOutboundLoggingEnabled(kv: KVNamespace): Promise<boolean> {
-  return (await kv.get("system:outbound_request_logging_enabled")) === "true";
+  const now = Date.now();
+  if (
+    cachedOutboundLogging !== null &&
+    kv === cachedOutboundLoggingKv &&
+    now < cachedOutboundLoggingExpiry
+  ) {
+    return cachedOutboundLogging;
+  }
+  const enabled =
+    (await kv.get("system:outbound_request_logging_enabled")) === "true";
+  cachedOutboundLogging = enabled;
+  cachedOutboundLoggingKv = kv;
+  cachedOutboundLoggingExpiry = now + FLAG_TTL_MS;
+  return enabled;
 }
 
 async function writeOutboundLog(
@@ -346,8 +365,6 @@ export async function loggedSafeFetch(
 
 // ─── Module-level KV flag cache (avoids a KV read on every request) ───────────
 
-const FLAG_TTL_MS = 10_000; // re-check KV every 10 seconds
-
 type RequestLoggingFlags = {
   loggingEnabled: boolean;
   forceLogAll: boolean;
@@ -369,6 +386,15 @@ const DISABLED_LOGGING_FLAGS: RequestLoggingFlags = {
 let cachedFlags: RequestLoggingFlags = DISABLED_LOGGING_FLAGS;
 let cachedKv: KVNamespace | null = null;
 let cacheExpiry: number = 0;
+
+export function invalidateLoggingFlagsCache(): void {
+  cachedFlags = DISABLED_LOGGING_FLAGS;
+  cachedKv = null;
+  cacheExpiry = 0;
+  cachedOutboundLogging = null;
+  cachedOutboundLoggingKv = null;
+  cachedOutboundLoggingExpiry = 0;
+}
 
 async function getFlags(kv: KVNamespace): Promise<RequestLoggingFlags> {
   const now = Date.now();

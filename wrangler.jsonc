@@ -1,5 +1,5 @@
 {
-  "name": "prism",
+  "name": "prism-auth",
   // @cloudflare/vite-plugin 的入口指示器，构建时会验证该文件。
   // Vite 会将 worker 打包至 dist/prism/index.js，并在同级生成部署专用的 dist/prism/wrangler.json。
   // 生产环境部署必须使用生成的配置（否则 wrangler 会重新打包源文件并跳过 Vite 的 SSR 服务端渲染逻辑）。

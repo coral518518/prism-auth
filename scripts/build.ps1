@@ -220,13 +220,17 @@ if (-not $SkipFrontend) {
     # wrangler.json at the project root, where wrangler will pick it up
     # in preference to the source-pointing wrangler.jsonc.
     Step 'Generating deploy-ready wrangler.json'
-    $distConfig = Join-Path $Root 'dist\prism\wrangler.json'
+    $distConfig = Join-Path $Root 'dist\prism-auth\wrangler.json'
+    if (-not (Test-Path $distConfig)) {
+        $distConfig = Join-Path $Root 'dist\prism\wrangler.json'
+    }
     if (Test-Path $distConfig) {
+        $distDir = Split-Path -Leaf (Split-Path $distConfig)
         $cfg = Get-Content $distConfig -Raw | ConvertFrom-Json
-        $cfg.main = 'dist/prism/index.js'
+        $cfg.main = "dist/$distDir/index.js"
         if ($cfg.assets) { $cfg.assets.directory = './dist/client' }
         # migrations_dir is emitted as '../../worker/db/migrations' — correct
-        # from dist/prism/, but two levels above the repo once the config sits
+        # from dist/$distDir/, but two levels above the repo once the config sits
         # at the root, where wrangler reports "No migrations present".
         foreach ($db in $cfg.d1_databases) {
             if ($db.migrations_dir -and $db.migrations_dir.StartsWith('../../')) {
@@ -236,7 +240,7 @@ if (-not $SkipFrontend) {
         $cfg | ConvertTo-Json -Depth 100 -Compress | Set-Content (Join-Path $Root 'wrangler.json') -NoNewline
         Ok 'wrangler.json (root) updated for deploy'
     } else {
-        Warn 'dist/prism/wrangler.json not found — deploy will fall back to source bundling'
+        Warn 'dist/*/wrangler.json not found — deploy will fall back to source bundling'
     }
 
     Write-Host "`nBuild complete. Output in dist/" -ForegroundColor Green

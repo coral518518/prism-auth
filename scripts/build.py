@@ -320,11 +320,14 @@ def build_frontend(pm: str) -> None:
     # ships the Vite-built bundle instead of re-bundling worker/index.ts.
     import json as _json
     step("Generating deploy-ready wrangler.json")
-    dist_cfg = ROOT / "dist" / "prism" / "wrangler.json"
+    dist_cfg = ROOT / "dist" / "prism-auth" / "wrangler.json"
+    if not dist_cfg.exists():
+        dist_cfg = ROOT / "dist" / "prism" / "wrangler.json"
     if dist_cfg.exists():
+        dist_dir = dist_cfg.parent.name
         with dist_cfg.open(encoding="utf-8") as f:
             cfg = _json.load(f)
-        cfg["main"] = "dist/prism/index.js"
+        cfg["main"] = f"dist/{dist_dir}/index.js"
         if "assets" in cfg and isinstance(cfg["assets"], dict):
             cfg["assets"]["directory"] = "./dist/client"
         # migrations_dir is emitted as "../../worker/db/migrations" — correct
@@ -338,7 +341,7 @@ def build_frontend(pm: str) -> None:
             _json.dump(cfg, f, indent=2)
         ok("wrangler.json (root) updated for deploy")
     else:
-        warn("dist/prism/wrangler.json not found — deploy will fall back to source bundling")
+        warn("dist/*/wrangler.json not found — deploy will fall back to source bundling")
 
     print("\nBuild complete. Output in dist/")
 

@@ -128,7 +128,8 @@ fi
 BUILD_SKIP_REASON=""
 if [ "$SKIP_BUILD" = false ] && [ "$MIGRATIONS_ONLY" = false ] &&
   [ -n "${WORKERS_CI:-}${CI:-}${GITHUB_ACTIONS:-}${GITLAB_CI:-}" ] &&
-  [ -f "$ROOT/wrangler.json" ] && [ -f "$ROOT/dist/prism/index.js" ]; then
+  [ -f "$ROOT/wrangler.json" ] &&
+  { [ -f "$ROOT/dist/prism-auth/index.js" ] || [ -f "$ROOT/dist/prism/index.js" ]; }; then
   SKIP_BUILD=true
   BUILD_SKIP_REASON="CI build step already produced dist/ and wrangler.json"
 fi

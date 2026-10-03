@@ -218,15 +218,24 @@ if [ "$SKIP_FRONTEND" = false ]; then
   # CI runner with the checkout at /opt/buildhome/repo that resolves to
   # /opt/worker/db/migrations and wrangler reports "No migrations present".
   step "Generating deploy-ready wrangler.json"
-  if [ -f dist/prism/wrangler.json ]; then
+  DIST_CFG=""
+  if [ -f dist/prism-auth/wrangler.json ]; then
+    DIST_CFG="dist/prism-auth/wrangler.json"
+    DIST_DIR="dist/prism-auth"
+  elif [ -f dist/prism/wrangler.json ]; then
+    DIST_CFG="dist/prism/wrangler.json"
+    DIST_DIR="dist/prism"
+  fi
+
+  if [ -n "$DIST_CFG" ]; then
     sed \
-      -e 's|"main":"index\.js"|"main":"dist/prism/index.js"|' \
+      -e "s|\"main\":\"index\\.js\"|\"main\":\"$DIST_DIR/index.js\"|" \
       -e 's|"directory":"\.\./client"|"directory":"./dist/client"|' \
       -e 's|"migrations_dir":"\.\./\.\./|"migrations_dir":"|g' \
-      dist/prism/wrangler.json > wrangler.json
+      "$DIST_CFG" > wrangler.json
     ok "wrangler.json (root) updated for deploy"
   else
-    warn "dist/prism/wrangler.json not found — deploy will fall back to source bundling"
+    warn "dist/*/wrangler.json not found — deploy will fall back to source bundling"
   fi
 
   echo

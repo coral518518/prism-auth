@@ -190,7 +190,7 @@ def main() -> None:
     build_skip_reason = ""
     if (not args.skip_build and not args.migrations_only and running_in_ci()
             and (ROOT / "wrangler.json").exists()
-            and (ROOT / "dist" / "prism" / "index.js").exists()):
+            and ((ROOT / "dist" / "prism-auth" / "index.js").exists() or (ROOT / "dist" / "prism" / "index.js").exists())):
         args.skip_build = True
         build_skip_reason = "CI build step already produced dist/ and wrangler.json"
 

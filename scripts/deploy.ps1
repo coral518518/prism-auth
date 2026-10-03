@@ -99,9 +99,9 @@ try {
     $buildSkipReason = ''
     $ciNow = @('WORKERS_CI', 'CI', 'GITHUB_ACTIONS', 'GITLAB_CI') |
         Where-Object { [Environment]::GetEnvironmentVariable($_) }
+    $hasBuiltIndex = (Test-Path (Join-Path $Root 'dist\prism-auth\index.js')) -or (Test-Path (Join-Path $Root 'dist\prism\index.js'))
     if (-not $SkipBuild -and -not $MigrationsOnly -and $ciNow -and
-        (Test-Path (Join-Path $Root 'wrangler.json')) -and
-        (Test-Path (Join-Path $Root 'dist\prism\index.js'))) {
+        (Test-Path (Join-Path $Root 'wrangler.json')) -and $hasBuiltIndex) {
         $SkipBuild = $true
         $buildSkipReason = 'CI build step already produced dist/ and wrangler.json'
     }

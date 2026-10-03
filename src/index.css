@@ -1,0 +1,120 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* Match the FluentProvider's neutral background on the html/body so that
+   any area outside the rendered React tree (white margin while the bundle
+   loads, overscroll bounce, narrow viewports where the app doesn't fill
+   the viewport) paints in the right colour. Driven by the data-theme
+   attribute set synchronously by the FOUC shim before paint.
+   color-scheme also tells the UA to use the dark canvas + scrollbars. */
+html {
+  color-scheme: light;
+  background: #ffffff;
+}
+html[data-theme="dark"] {
+  color-scheme: dark;
+  background: #000000;
+}
+
+body {
+  font-family:
+    "Segoe UI",
+    system-ui,
+    -apple-system,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: inherit;
+}
+
+.mono {
+  font-family:
+    ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas, monospace;
+}
+
+.auth-grid {
+  background-image:
+    linear-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+[data-theme="dark"] .auth-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+}
+
+/* Fluent Badge (pill/capsule) must never wrap its label or shrink inside
+   flex rows: CJK text like 已启用 otherwise collapses onto two lines on
+   narrow viewports. nowrap keeps min-content = full text width, and
+   flex-shrink: 0 stops flex parents from squeezing the pill at all. */
+.fui-Badge {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Portalled Fluent surfaces sit outside most page containers. Give them the
+   same neutral boundary everywhere so menus and popups remain distinct in
+   both themes even though this design intentionally removes their shadows. */
+.fui-DialogSurface,
+.fui-MenuPopover,
+.fui-PopoverSurface,
+.fui-Listbox {
+  border: 1px solid var(--colorNeutralStroke1);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Monochrome provider icons (X, GitHub) ship as a black silhouette and
+   vanish on the dark background. /api/site flags them with
+   icon_invert_on_dark; we invert via filter only in dark mode. */
+[data-theme="dark"] .provider-icon--invert-on-dark {
+  filter: invert(1);
+}
+
+/* Full-width icon-only login button. Fluent UI auto-applies a square
+   (min-width: auto, width: max-content, square padding) layout to any
+   Button with no text children. Those rules sit in atomic classes that
+   we can't reliably out-order via griffel, so !important is the only
+   reliable beat — scoped narrowly to this opt-in class. */
+button.provider-button--full-width {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.4);
+}
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}

@@ -1,0 +1,253 @@
+// User dashboard overview
+
+import {
+  Badge,
+  Button,
+  Text,
+  Title3,
+  makeStyles,
+  tokens,
+} from "@fluentui/react-components";
+import {
+  AppsRegular,
+  GlobeRegular,
+  KeyRegular,
+  LinkRegular,
+  MailRegular,
+  ShieldPersonRegular,
+} from "@fluentui/react-icons";
+import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { useApi } from "../lib/api-context";
+import { useAuthStore } from "../store/auth";
+import { PageHeader } from "../components/PageHeader";
+import { SkeletonStatCards } from "../components/Skeletons";
+
+const useStyles = makeStyles({
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+    gap: "12px",
+  },
+  statCard: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+    cursor: "pointer",
+    border: `1px solid ${tokens.colorNeutralStroke1}`,
+    borderRadius: "10px",
+    padding: "16px",
+    background: tokens.colorNeutralBackground1,
+    transition: "box-shadow 0.15s",
+    ":hover": {
+      borderTopColor: tokens.colorNeutralForeground1,
+      borderRightColor: tokens.colorNeutralForeground1,
+      borderBottomColor: tokens.colorNeutralForeground1,
+      borderLeftColor: tokens.colorNeutralForeground1,
+    },
+  },
+  iconRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    color: tokens.colorBrandForeground1,
+    fontSize: "20px",
+  },
+  securityBanner: {
+    padding: "14px 16px",
+    borderRadius: "10px",
+    border: `1px solid ${tokens.colorNeutralStroke1}`,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "16px",
+    marginBottom: "16px",
+    flexWrap: "wrap",
+  },
+});
+
+export function Dashboard() {
+  const api = useApi();
+  const styles = useStyles();
+  const navigate = useNavigate();
+  const { user } = useAuthStore();
+  const { t } = useTranslation();
+
+  const { data: me, isLoading: meLoading } = useQuery({
+    queryKey: ["me"],
+    queryFn: api.me,
+  });
+  const { data: appsData, isLoading: appsLoading } = useQuery({
+    queryKey: ["apps"],
+    queryFn: () => api.listApps(),
+  });
+  const { data: domainsData, isLoading: domainsLoading } = useQuery({
+    queryKey: ["domains"],
+    queryFn: () => api.listDomains(),
+  });
+  const { data: connectionsData, isLoading: connectionsLoading } = useQuery({
+    queryKey: ["connections"],
+    queryFn: api.listConnections,
+  });
+
+  const isLoading =
+    meLoading || appsLoading || domainsLoading || connectionsLoading;
+
+  const showEmailBanner = me?.user.email_verified === false;
+  const showSecurityWarning =
+    !me?.totp_enabled && (me?.passkey_count ?? 0) === 0;
+
+  const passkeyCount = me?.passkey_count ?? 0;
+
+  return (
+    <div>
+      <PageHeader
+        title={t("dashboard.welcomeBack", { name: user?.display_name })}
+        subtitle={t("dashboard.manageDesc")}
+      />
+
+      {showEmailBanner && (
+        <div className={styles.securityBanner}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <MailRegular fontSize={24} />
+            <div>
+              <Text weight="semibold" block>
+                {t("dashboard.verifyEmailTitle")}
+              </Text>
+              <Text
+                size={200}
+                style={{ color: tokens.colorNeutralForeground3 }}
+              >
+                {t("dashboard.verifyEmailDesc")}
+              </Text>
+            </div>
+          </div>
+          <Button
+            appearance="primary"
+            size="small"
+            onClick={() => navigate("/verify-choose")}
+          >
+            {t("dashboard.verifyNow")}
+          </Button>
+        </div>
+      )}
+
+      {showSecurityWarning && (
+        <div className={styles.securityBanner}>
+          <div>
+            <Text weight="semibold" block>
+              {t("dashboard.improveSecurityTitle")}
+            </Text>
+            <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
+              {t("dashboard.improveSecurityDesc")}
+            </Text>
+          </div>
+          <Button
+            appearance="primary"
+            size="small"
+            onClick={() => navigate("/security")}
+          >
+            {t("dashboard.setUp2FA")}
+          </Button>
+        </div>
+      )}
+
+      {isLoading ? (
+        <SkeletonStatCards count={4} />
+      ) : (
+        <div className={styles.grid}>
+          <div className={styles.statCard} onClick={() => navigate("/apps")}>
+            <div className={styles.iconRow}>
+              <AppsRegular fontSize={20} />
+              <Text weight="semibold">{t("dashboard.applications")}</Text>
+            </div>
+            <Title3>{appsData?.apps.length ?? 0}</Title3>
+            <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
+              {t("dashboard.oauthAppsRegistered")}
+            </Text>
+          </div>
+
+          <div className={styles.statCard} onClick={() => navigate("/domains")}>
+            <div className={styles.iconRow}>
+              <GlobeRegular fontSize={20} />
+              <Text weight="semibold">{t("dashboard.domainsCard")}</Text>
+            </div>
+            <Title3>
+              {domainsData?.domains.filter((d) => d.verified).length ?? 0}
+              <Text
+                size={300}
+                style={{ color: tokens.colorNeutralForeground3 }}
+              >
+                /{domainsData?.domains.length ?? 0}
+              </Text>
+            </Title3>
+            <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
+              {t("dashboard.verifiedDomains")}
+            </Text>
+          </div>
+
+          <div
+            className={styles.statCard}
+            onClick={() => navigate("/connections")}
+          >
+            <div className={styles.iconRow}>
+              <LinkRegular fontSize={20} />
+              <Text weight="semibold">{t("dashboard.linkedAccountsCard")}</Text>
+            </div>
+            <Title3>{connectionsData?.connections.length ?? 0}</Title3>
+            <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
+              {t("dashboard.connectedPlatforms")}
+            </Text>
+          </div>
+
+          <div
+            className={styles.statCard}
+            onClick={() => navigate("/security")}
+          >
+            <div className={styles.iconRow}>
+              <ShieldPersonRegular fontSize={20} />
+              <Text weight="semibold">{t("dashboard.securityCard")}</Text>
+            </div>
+            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+              <Badge
+                color={me?.totp_enabled ? "success" : "subtle"}
+                appearance="filled"
+              >
+                {me?.totp_enabled
+                  ? t("security.twoFaEnabled")
+                  : t("security.twoFaOff")}
+              </Badge>
+              <Badge
+                color={passkeyCount > 0 ? "success" : "subtle"}
+                appearance="filled"
+              >
+                {passkeyCount === 1
+                  ? t("security.passkeyCount", { count: passkeyCount })
+                  : t("security.passkeysCount", { count: passkeyCount })}
+              </Badge>
+            </div>
+          </div>
+
+          {me?.passkey_count === 0 && (
+            <div
+              className={styles.statCard}
+              onClick={() => navigate("/security")}
+            >
+              <div className={styles.iconRow}>
+                <KeyRegular fontSize={20} />
+                <Text weight="semibold">{t("dashboard.addPasskeyCard")}</Text>
+              </div>
+              <Text
+                size={200}
+                style={{ color: tokens.colorNeutralForeground3 }}
+              >
+                {t("dashboard.addPasskeyDesc")}
+              </Text>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

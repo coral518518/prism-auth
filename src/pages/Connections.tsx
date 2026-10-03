@@ -1,0 +1,568 @@
+// Social platform connections page
+
+import {
+  Avatar,
+  Badge,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogBody,
+  DialogContent,
+  DialogSurface,
+  DialogTitle,
+  DialogTrigger,
+  Image,
+  MessageBar,
+  Text,
+  Tooltip,
+  makeStyles,
+  Spinner,
+  tokens,
+} from "@fluentui/react-components";
+import {
+  AddRegular,
+  ArrowClockwiseRegular,
+  DeleteRegular,
+  GlobeRegular,
+} from "@fluentui/react-icons";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
+import { ApiError } from "../lib/api";
+import { useApi } from "../lib/api-context";
+import { PageHeader } from "../components/PageHeader";
+import { SkeletonAppCards } from "../components/Skeletons";
+import { useToastMessage } from "../lib/useToastMessage";
+
+const useStyles = makeStyles({
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
+    gap: "12px",
+  },
+  providerCard: {
+    padding: "20px",
+    borderRadius: "8px",
+    border: `1px solid ${tokens.colorNeutralStroke1}`,
+    background: tokens.colorNeutralBackground1,
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+  },
+  providerHeader: { display: "flex", alignItems: "center", gap: "12px" },
+  providerIcon: {
+    width: "40px",
+    height: "40px",
+    borderRadius: "8px",
+    background: "#fff",
+    border: `1px solid ${tokens.colorNeutralStroke2}`,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  connRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: "8px 10px",
+    borderRadius: "6px",
+    background: tokens.colorNeutralBackground3,
+    gap: "8px",
+  },
+  // The identity column. `minWidth: 0` lets it shrink below its content's
+  // intrinsic width so the long, unbreakable values a provider can return
+  // (Cloudflare usernames and account ids are 32-char hex strings) truncate
+  // instead of shoving the action buttons out of the card.
+  connInfo: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    flex: 1,
+    minWidth: 0,
+  },
+  truncate: {
+    display: "block",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  // The buttons never shrink — they are the whole point of the row staying
+  // within the card.
+  connActions: {
+    display: "flex",
+    gap: "4px",
+    flexShrink: 0,
+  },
+});
+
+// URL is pre-proxied by /api/site so no client-side proxy registration is
+// needed here.
+function ProviderIcon({ url, alt }: { url: string; alt: string }) {
+  return <Image src={url} alt={alt} width={24} height={24} fit="contain" />;
+}
+
+const ERROR_MESSAGES: Record<string, string> = {
+  invalid_state:
+    "Login session expired or link was already used. Please try connecting again.",
+  profile_fetch_failed:
+    "Could not retrieve your profile from the provider. Check that the app has the correct permissions and try again.",
+  token_exchange_failed:
+    "Failed to complete sign-in with the provider. Please try again.",
+  no_access_token:
+    "The provider did not return an access token. Please try again.",
+  no_user_id: "Could not read your account ID from the provider.",
+  missing_params: "The provider returned an incomplete response.",
+  access_denied:
+    "You cancelled the sign-in or denied the requested permissions.",
+  registration_disabled:
+    "New registrations are currently disabled on this server.",
+  user_creation_failed:
+    "Account creation failed. Please contact an administrator.",
+  already_connected: "This account is already linked to your profile.",
+  account_taken: "This account is already linked to another user.",
+  invalid_signature:
+    "The response from Telegram could not be verified. Please try again.",
+  auth_expired:
+    "The Telegram authentication session expired. Please try again.",
+  unsupported_refresh:
+    "This provider does not support refreshing linked profile data.",
+  account_mismatch:
+    "Could not refresh this connection because the provider returned a different account.",
+  reauthorization_required:
+    "Refresh token expired or missing. Please reconnect this account.",
+};
+
+function getDisplayName(profile: unknown): string | null {
+  if (!profile || typeof profile !== "object") return null;
+  const p = profile as Record<string, unknown>;
+  const telegramName =
+    [p.first_name, p.last_name].filter(Boolean).join(" ") || null;
+  return (
+    (p.name as string) ||
+    telegramName ||
+    (p.login as string) ||
+    (p.username as string) ||
+    (p.global_name as string) ||
+    (p.email as string) ||
+    null
+  );
+}
+
+function getProfileAvatarUrl(conn: {
+  provider: string;
+  provider_user_id: string;
+  profile: unknown;
+}): string | null {
+  if (!conn.profile || typeof conn.profile !== "object") return null;
+  const profile = conn.profile as Record<string, unknown>;
+
+  const directAvatar = getProfileTextField(profile, [
+    "avatar_url",
+    "photo_url",
+    "picture",
+    "image",
+    "profile_image_url",
+  ]);
+  if (directAvatar) return directAvatar;
+
+  if (conn.provider === "discord") {
+    const discordId =
+      getProfileTextField(profile, ["id"]) ?? conn.provider_user_id;
+    const avatarHash = getProfileTextField(profile, ["avatar"]);
+    if (!discordId || !avatarHash) return null;
+    const ext = avatarHash.startsWith("a_") ? "gif" : "png";
+    return `https://cdn.discordapp.com/avatars/${discordId}/${avatarHash}.${ext}?size=128`;
+  }
+
+  return null;
+}
+
+function getProfileTextField(profile: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = profile[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number" || typeof value === "bigint") {
+      return String(value);
+    }
+  }
+  return null;
+}
+
+function getConnectionDetails(conn: {
+  profile: unknown;
+  provider_user_id: string;
+}) {
+  const profile =
+    conn.profile && typeof conn.profile === "object"
+      ? (conn.profile as Record<string, unknown>)
+      : null;
+  const telegramNickname = profile
+    ? [profile.first_name, profile.last_name]
+        .filter((part): part is string => typeof part === "string" && !!part)
+        .join(" ")
+        .trim() || null
+    : null;
+  const nickname = profile
+    ? (getProfileTextField(profile, [
+        "nickname",
+        "display_name",
+        "name",
+        "global_name",
+      ]) ?? telegramNickname)
+    : null;
+  const username = profile
+    ? getProfileTextField(profile, [
+        "username",
+        "login",
+        "preferred_username",
+        "user_name",
+      ])
+    : null;
+  const platformId =
+    (profile
+      ? getProfileTextField(profile, ["id", "sub", "user_id", "uid"])
+      : null) ?? conn.provider_user_id;
+  return {
+    nickname,
+    username,
+    platformId,
+    display: nickname ?? username ?? getDisplayName(conn.profile) ?? platformId,
+  };
+}
+
+export function Connections() {
+  const api = useApi();
+  const styles = useStyles();
+  const qc = useQueryClient();
+  const { t } = useTranslation();
+  const { data: connectionsData, isLoading: connsLoading } = useQuery({
+    queryKey: ["connections"],
+    queryFn: api.listConnections,
+  });
+  const { data: site, isLoading: siteLoading } = useQuery({
+    queryKey: ["site"],
+    queryFn: api.site,
+    staleTime: 60_000,
+  });
+
+  const isLoading = connsLoading || siteLoading;
+
+  const { message, showMsg } = useToastMessage(8000);
+  const [refreshingConnectionId, setRefreshingConnectionId] = useState<
+    string | null
+  >(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const error = params.get("error");
+    const success = params.get("success");
+    if (!error && success !== "connected") return;
+    // Run the user-visible side effect as a queued microtask so the rule
+    // sees the setState as detached from the effect body proper. The
+    // history rewrite still happens here so a refresh doesn't replay it.
+    queueMicrotask(() => {
+      if (error) {
+        showMsg(
+          "error",
+          ERROR_MESSAGES[error] ??
+            `Connection failed: ${error.replace(/_/g, " ")}`,
+        );
+      } else {
+        showMsg("success", t("connections.connectedSuccessfully"));
+      }
+    });
+    window.history.replaceState({}, "", window.location.pathname);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const getConnections = (providerId: string) =>
+    connectionsData?.connections.filter((c) => c.provider === providerId) ?? [];
+
+  const handleConnect = async (providerId: string) => {
+    try {
+      const { token: intent } = await api.connectionIntent();
+      const { redirect } = await api.connectionBegin(providerId, {
+        mode: "connect",
+        intent,
+      });
+      window.location.assign(redirect);
+    } catch (err) {
+      showMsg(
+        "error",
+        err instanceof ApiError
+          ? err.message
+          : t("connections.failedStartConnection"),
+      );
+    }
+  };
+
+  const handleDisconnect = async (id: string, providerName: string) => {
+    try {
+      await api.disconnectConnection(id);
+      await qc.invalidateQueries({ queryKey: ["connections"] });
+      showMsg(
+        "success",
+        t("connections.disconnectedFrom", { provider: providerName }),
+      );
+    } catch (err) {
+      showMsg(
+        "error",
+        err instanceof ApiError
+          ? err.message
+          : t("connections.disconnectFailed"),
+      );
+    }
+  };
+
+  const handleRefresh = async (id: string, providerName: string) => {
+    setRefreshingConnectionId(id);
+    try {
+      await api.refreshConnection(id);
+      await qc.invalidateQueries({ queryKey: ["connections"] });
+      showMsg(
+        "success",
+        t("connections.refreshedFrom", { provider: providerName }),
+      );
+    } catch (err) {
+      showMsg(
+        "error",
+        err instanceof ApiError
+          ? (ERROR_MESSAGES[err.message] ?? err.message)
+          : t("connections.refreshFailed"),
+      );
+    } finally {
+      setRefreshingConnectionId((curr) => (curr === id ? null : curr));
+    }
+  };
+
+  const providers = site?.enabled_providers ?? [];
+  const providerTypeBySlug = new Map(
+    providers.map((p) => [p.slug, p.provider]),
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      <PageHeader
+        title={t("connections.title")}
+        subtitle={t("connections.description")}
+        style={{ marginBottom: 0 }}
+      />
+
+      {message && (
+        <MessageBar intent={message.type === "success" ? "success" : "error"}>
+          {message.text}
+        </MessageBar>
+      )}
+
+      {isLoading ? <SkeletonAppCards count={4} /> : null}
+
+      <div className={styles.grid} style={isLoading ? { display: "none" } : {}}>
+        {providers.map((p) => {
+          const conns = getConnections(p.slug);
+          const providerIconUrl = p.icon_proxied_url ?? null;
+
+          return (
+            <div key={p.slug} className={styles.providerCard}>
+              <div className={styles.providerHeader}>
+                <div className={styles.providerIcon}>
+                  {providerIconUrl ? (
+                    <ProviderIcon url={providerIconUrl} alt={p.name} />
+                  ) : (
+                    <GlobeRegular style={{ fontSize: 20 }} />
+                  )}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <Text weight="semibold" block>
+                    {p.name}
+                  </Text>
+                  {conns.length > 0 ? (
+                    <Badge color="success" appearance="tint" size="small">
+                      {t("connections.connected", { count: conns.length })}
+                    </Badge>
+                  ) : (
+                    <Badge color="subtle" appearance="tint" size="small">
+                      {t("connections.notConnected")}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+
+              {conns.map((conn) => {
+                const details = getConnectionDetails(conn);
+                const displayName = details.display;
+                const profileAvatar = getProfileAvatarUrl(conn);
+                const canRefresh =
+                  providerTypeBySlug.get(conn.provider) !== "telegram";
+                return (
+                  <div key={conn.id} className={styles.connRow}>
+                    <div className={styles.connInfo}>
+                      <Avatar
+                        size={32}
+                        name={displayName ?? conn.provider_user_id}
+                        image={
+                          profileAvatar ? { src: profileAvatar } : undefined
+                        }
+                      />
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <Tooltip
+                          content={displayName ?? conn.provider_user_id}
+                          relationship="label"
+                        >
+                          <Text
+                            size={200}
+                            weight="semibold"
+                            className={styles.truncate}
+                          >
+                            {displayName ?? conn.provider_user_id}
+                          </Text>
+                        </Tooltip>
+                        {details.nickname ? (
+                          <Tooltip
+                            content={details.nickname}
+                            relationship="label"
+                          >
+                            <Text
+                              size={100}
+                              className={styles.truncate}
+                              style={{ color: tokens.colorNeutralForeground3 }}
+                            >
+                              {t("connections.detailNickname", {
+                                value: details.nickname,
+                              })}
+                            </Text>
+                          </Tooltip>
+                        ) : null}
+                        {details.username ? (
+                          <Tooltip
+                            content={details.username}
+                            relationship="label"
+                          >
+                            <Text
+                              size={100}
+                              className={styles.truncate}
+                              style={{ color: tokens.colorNeutralForeground3 }}
+                            >
+                              {t("connections.detailUsername", {
+                                value: details.username,
+                              })}
+                            </Text>
+                          </Tooltip>
+                        ) : null}
+                        {details.platformId ? (
+                          <Tooltip
+                            content={details.platformId}
+                            relationship="label"
+                          >
+                            <Text
+                              size={100}
+                              className={styles.truncate}
+                              style={{ color: tokens.colorNeutralForeground3 }}
+                            >
+                              {t("connections.detailId", {
+                                value: details.platformId,
+                              })}
+                            </Text>
+                          </Tooltip>
+                        ) : null}
+                        <Text
+                          size={100}
+                          className={styles.truncate}
+                          style={{ color: tokens.colorNeutralForeground3 }}
+                        >
+                          {t("connections.connectedOn", {
+                            date: new Date(
+                              conn.connected_at * 1000,
+                            ).toLocaleDateString(),
+                          })}
+                        </Text>
+                      </div>
+                    </div>
+
+                    <div className={styles.connActions}>
+                      {canRefresh ? (
+                        <Tooltip
+                          content={t("connections.refreshAction")}
+                          relationship="label"
+                        >
+                          <Button
+                            icon={
+                              refreshingConnectionId === conn.id ? (
+                                <Spinner size="tiny" />
+                              ) : (
+                                <ArrowClockwiseRegular />
+                              )
+                            }
+                            appearance="subtle"
+                            size="small"
+                            onClick={() => handleRefresh(conn.id, p.name)}
+                            disabled={refreshingConnectionId === conn.id}
+                          />
+                        </Tooltip>
+                      ) : null}
+                      <Dialog>
+                        <DialogTrigger disableButtonEnhancement>
+                          <Tooltip
+                            content={t("connections.disconnectAction")}
+                            relationship="label"
+                          >
+                            <Button
+                              icon={<DeleteRegular />}
+                              appearance="subtle"
+                              size="small"
+                            />
+                          </Tooltip>
+                        </DialogTrigger>
+                        <DialogSurface>
+                          <DialogBody>
+                            <DialogTitle>
+                              {t("connections.disconnectTitle", {
+                                provider: p.name,
+                              })}
+                            </DialogTitle>
+                            <DialogContent>
+                              {displayName
+                                ? t("connections.disconnectDesc", {
+                                    name: displayName,
+                                  })
+                                : null}{" "}
+                              {t("connections.disconnectWarning")}
+                            </DialogContent>
+                            <DialogActions>
+                              <DialogTrigger>
+                                <Button>{t("common.cancel")}</Button>
+                              </DialogTrigger>
+                              <Button
+                                appearance="primary"
+                                onClick={() =>
+                                  handleDisconnect(conn.id, p.name)
+                                }
+                              >
+                                {t("connections.disconnectAction")}
+                              </Button>
+                            </DialogActions>
+                          </DialogBody>
+                        </DialogSurface>
+                      </Dialog>
+                    </div>
+                  </div>
+                );
+              })}
+
+              <Button
+                appearance="outline"
+                size="small"
+                icon={<AddRegular />}
+                onClick={() => handleConnect(p.slug)}
+              >
+                {conns.length > 0
+                  ? t("connections.addAnother", { provider: p.name })
+                  : t("connections.connect", { provider: p.name })}
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

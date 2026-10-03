@@ -1,0 +1,16 @@
+-- Sub-team configurability.
+--
+-- All knobs live in site_config (JSON-encoded). Reads go through the
+-- DEFAULT_CONFIG fallback in worker/lib/config.ts so a deployment that
+-- never SETs a value still gets a sensible default.
+--
+-- New site_config keys (no rows inserted — DEFAULT_CONFIG provides them):
+--   enable_sub_teams                       boolean (default true)
+--   max_team_depth                         integer (default 5)
+--   inherit_team_membership                boolean (default true)
+--   inherit_team_domains                   boolean (default true)
+--   default_team_profile_show_sub_teams    boolean (default true)
+--
+-- Per-team profile flag — NULL = follow the site default, same convention
+-- as the other profile_show_* columns on teams.
+ALTER TABLE teams ADD COLUMN profile_show_sub_teams INTEGER;

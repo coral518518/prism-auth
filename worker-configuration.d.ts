@@ -18,6 +18,14 @@ interface Env {
   ASSETS?: Fetcher;
   // Vars
   APP_URL: string;
+  // Free-tier optimization toggles: set to "true" in wrangler.jsonc vars
+  // to completely eliminate D1 writes for audit logs, login errors, and session IPs.
+  DISABLE_AUDIT_LOGS?: string;
+  DISABLE_LOGIN_ERRORS?: string;
+  DISABLE_SESSION_IP_TRACKING?: string;
+  DISABLE_REQUEST_LOGS?: string;
+  DISABLE_NOTIFICATIONS?: string;
+  DISABLE_IMAGE_PROXY?: string;
   // Gate the Admin Panel "Reset everything" command. Disabled by default
   // (irreversibly destructive). Set to "true" / "1" / "yes" in
   // wrangler.jsonc vars to expose the button in the admin UI.

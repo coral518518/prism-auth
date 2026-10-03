@@ -16,6 +16,7 @@ import { decryptSecret } from "./secretCrypto";
 import { loggedFetch, loggedSafeFetch } from "./logger";
 import { validateOutboundUrl } from "./safeFetch";
 import { geoJson } from "./geo";
+import { getConfig } from "./config";
 import type { WaitUntilCtx } from "../types";
 
 export type AuditScope = "user" | "team" | "platform";
@@ -75,6 +76,9 @@ export async function recordAudit(
 ): Promise<void> {
   const list = Array.isArray(inputs) ? inputs : [inputs];
   if (list.length === 0) return;
+  if (env.DISABLE_AUDIT_LOGS === "true") return;
+  const config = await getConfig(env.DB);
+  if (config.disable_audit_logs) return;
   const now = Math.floor(Date.now() / 1000);
   try {
     const prepared = list.map((input) => {
@@ -307,10 +311,36 @@ async function recordDelivery(
     .catch(() => {});
 }
 
+let hasActiveWebhooksCache: { timestamp: number; active: boolean } | null =
+  null;
+const ACTIVE_WEBHOOKS_TTL_MS = 60_000;
+
+export function invalidateAuditWebhooksCache(): void {
+  hasActiveWebhooksCache = null;
+}
+
+async function hasActiveAuditWebhooks(db: D1Database): Promise<boolean> {
+  const now = Date.now();
+  if (
+    hasActiveWebhooksCache &&
+    now - hasActiveWebhooksCache.timestamp < ACTIVE_WEBHOOKS_TTL_MS
+  ) {
+    return hasActiveWebhooksCache.active;
+  }
+  const row = await db
+    .prepare("SELECT 1 FROM audit_webhooks WHERE is_active = 1 LIMIT 1")
+    .first();
+  const active = !!row;
+  hasActiveWebhooksCache = { timestamp: now, active };
+  return active;
+}
+
 async function deliverAuditWebhooks(
   env: Env,
   event: DeliveredEvent,
 ): Promise<void> {
+  if (!(await hasActiveAuditWebhooks(env.DB))) return;
+
   const { results } = await env.DB.prepare(
     "SELECT id, kind, config, events FROM audit_webhooks WHERE scope = ? AND is_active = 1 AND ((scope_id IS NULL AND ? IS NULL) OR scope_id = ?)",
   )

@@ -25,6 +25,7 @@ import {
 import { isUserLocked } from "../lib/lockdown";
 import {
   proxyImageUrl,
+  registerImageProxyMapping,
   registerMarkdownImageMappings,
   sweepOrphanedImageProxyMappings,
 } from "../lib/proxyImage";
@@ -363,9 +364,17 @@ app.patch("/me", async (c) => {
     );
   }
 
+  if (body.avatar_url && !body.avatar_url.startsWith("/api/assets/")) {
+    c.executionCtx.waitUntil(
+      registerImageProxyMapping(c.env.DB, body.avatar_url, user.id).catch(
+        () => {},
+      ),
+    );
+  }
+
   // Avatar swap or README rewrite likely orphans the previous URL(s) —
   // sweep in the background. Other field edits don't touch image columns
-  // so we skip the DB scan there.
+  // so we sweep only when image columns changed.
   if (body.avatar_url !== undefined || body.profile_readme !== undefined) {
     c.executionCtx.waitUntil(
       sweepOrphanedImageProxyMappings(c.env.DB).catch(() => {}),

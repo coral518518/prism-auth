@@ -88,7 +88,13 @@ async function logLoginError(
   userAgent: string | null,
   geo: string | null,
   metadata: Record<string, unknown>,
+  env?: Env,
 ): Promise<void> {
+  if (env?.DISABLE_LOGIN_ERRORS === "true") return;
+  const config = await getConfig(db);
+  if (config.disable_login_error_logs || config.login_error_retention_days <= 0)
+    return;
+
   const now = Math.floor(Date.now() / 1000);
   await db
     .prepare(

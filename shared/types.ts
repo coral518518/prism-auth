@@ -158,6 +158,18 @@ export interface SiteConfig {
    *  bundle hydrate on its own. Useful for debugging SSR-only bugs or
    *  cutting D1 read load during incidents. */
   disable_ssr: boolean;
+  /** When true, disables writing audit_events to D1 to conserve free-tier write quotas. */
+  disable_audit_logs: boolean;
+  /** When true, disables writing login_errors to D1 on failed logins. */
+  disable_login_error_logs: boolean;
+  /** When true, disables updating session_ips on authenticated requests. */
+  disable_session_ip_tracking: boolean;
+  /** When true, completely disables request_logs and outbound request logging to D1 and KV. */
+  disable_request_logs: boolean;
+  /** When true, disables notification rule evaluations and deliveries. */
+  disable_notifications: boolean;
+  /** When true, external images are loaded directly without worker proxying or image_proxy_mappings D1 writes. */
+  disable_image_proxy: boolean;
   tg_notify_source_slug: string;
   /** Slug of the enabled Discord oauth_source used to identify linked Discord
    *  recipients. Empty disables Discord DM notifications. */

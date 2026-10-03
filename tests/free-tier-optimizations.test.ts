@@ -11,6 +11,9 @@ import {
 import { getMLDSAKey, invalidateMLDSAKeyCache } from "../worker/lib/mldsa";
 import { isUserLocked } from "../worker/lib/lockdown";
 import { invalidateLoggingFlagsCache } from "../worker/lib/logger";
+import { recordAudit } from "../worker/lib/audit";
+import { deliverUserEmailNotifications } from "../worker/lib/notifications";
+import { proxyImageUrl } from "../worker/lib/proxyImage";
 
 class MockD1Statement {
   private values: unknown[] = [];
@@ -167,5 +170,95 @@ describe("Free Tier Optimizations & Security Fixes", () => {
 
   test("invalidateLoggingFlagsCache executes cleanly", () => {
     expect(() => invalidateLoggingFlagsCache()).not.toThrow();
+  });
+
+  test("recordAudit completely skips D1 writes when DISABLE_AUDIT_LOGS is set", async () => {
+    const rawDb = new Database(":memory:");
+    rawDb.run(
+      "CREATE TABLE site_config (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER)",
+    );
+    rawDb.run(
+      `CREATE TABLE audit_events (
+        id TEXT PRIMARY KEY, scope TEXT, scope_id TEXT, action TEXT,
+        actor_id TEXT, actor_name TEXT, resource_type TEXT, resource_id TEXT,
+        resource_name TEXT, ip TEXT, user_agent TEXT, ip_geo TEXT, metadata TEXT, created_at INTEGER
+      )`,
+    );
+
+    const d1 = new MockD1(rawDb);
+    const env = {
+      DB: d1 as unknown as D1Database,
+      DISABLE_AUDIT_LOGS: "true",
+    } as unknown as Env;
+
+    const ctx = {
+      waitUntil: () => {},
+      passThroughOnException: () => {},
+    };
+
+    await recordAudit(env, ctx, {
+      scope: "user",
+      scopeId: "u_123",
+      action: "user.login",
+    });
+
+    // Zero queries to audit_events or audit_webhooks
+    expect(d1.queryCount).toBe(0);
+    const count = rawDb
+      .query("SELECT COUNT(*) AS c FROM audit_events")
+      .get() as {
+      c: number;
+    };
+    expect(count.c).toBe(0);
+  });
+
+  test("deliverUserEmailNotifications completely skips D1 when DISABLE_NOTIFICATIONS is set", async () => {
+    const rawDb = new Database(":memory:");
+    const d1 = new MockD1(rawDb);
+    const env = {
+      DB: d1 as unknown as D1Database,
+      DISABLE_NOTIFICATIONS: "true",
+    } as unknown as Env;
+
+    await deliverUserEmailNotifications(
+      env,
+      "user_123",
+      "profile.updated",
+      {},
+      "https://example.com",
+    );
+
+    // Zero queries made to notification tables
+    expect(d1.queryCount).toBe(0);
+  });
+
+  test("proxyImageUrl returns original URL and skips D1 write when disable_image_proxy is true", async () => {
+    const rawDb = new Database(":memory:");
+    rawDb.run(
+      "CREATE TABLE site_config (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER)",
+    );
+    rawDb.run(
+      "INSERT INTO site_config (key, value, updated_at) VALUES ('disable_image_proxy', 'true', 1)",
+    );
+
+    const d1 = new MockD1(rawDb);
+    invalidateConfigCache();
+
+    const targetUrl = "https://external-cdn.example.com/avatar.png";
+    const result = await proxyImageUrl(
+      "https://example.com",
+      d1 as unknown as D1Database,
+      targetUrl,
+    );
+
+    expect(result).toBe(targetUrl);
+    // Only the config read happened; zero writes to image_proxy_mappings
+    expect(
+      rawDb
+        .query(
+          "SELECT COUNT(*) as c FROM sqlite_master WHERE type='table' AND name='image_proxy_mappings'",
+        )
+        .get(),
+    ).toEqual({ c: 0 });
   });
 });

@@ -8,6 +8,7 @@
 import { randomId } from "./crypto";
 import { decryptSecret } from "./secretCrypto";
 import { deliverOnce } from "./webhooks";
+import { getConfig } from "./config";
 
 export const APP_EVENT_TYPES = new Set([
   "user.token_granted",
@@ -26,6 +27,10 @@ export async function deliverAppEvent(
   event: string,
   data: unknown,
 ): Promise<void> {
+  if (env.DISABLE_AUDIT_LOGS === "true") return;
+  const config = await getConfig(env.DB);
+  if (config.disable_audit_logs) return;
+
   const now = Math.floor(Date.now() / 1000);
   const payload = JSON.stringify({ event, timestamp: now, data });
 

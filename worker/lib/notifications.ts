@@ -1271,6 +1271,10 @@ export async function deliverUserEmailNotifications(
   data: Record<string, unknown>,
   appUrl: string,
 ): Promise<void> {
+  if (env.DISABLE_NOTIFICATIONS === "true") return;
+  const config = await getConfig(env.DB);
+  if (config.disable_notifications) return;
+
   const db = env.DB;
   // Active ruleset takes precedence over the per-event prefs. Users who
   // never activate one keep the legacy behaviour.
@@ -1335,7 +1339,6 @@ export async function deliverUserEmailNotifications(
 
   if (!emailRules.length && !tgRules.length && !discordRules.length) return;
 
-  const config = await getConfig(db);
   const tasks: Promise<unknown>[] = [];
 
   // ── Email deliveries ────────────────────────────────────────────────────────

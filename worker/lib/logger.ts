@@ -306,6 +306,9 @@ async function withOutboundLog(
   req: Request,
   run: () => Promise<Response>,
 ): Promise<Response> {
+  if (env.DISABLE_REQUEST_LOGS === "true") {
+    return run();
+  }
   const loggingEnabled = await isOutboundLoggingEnabled(env.KV_SESSIONS).catch(
     () => false,
   );
@@ -438,6 +441,25 @@ export const requestLogger: MiddlewareHandler<AppEnv> = async (c, next) => {
     c.req.raw.headers.get("cf-connecting-ip") ??
     c.req.raw.headers.get("x-forwarded-for")?.split(",")[0].trim() ??
     null;
+
+  if (c.env.DISABLE_REQUEST_LOGS === "true") {
+    await next();
+    const durationMs = Date.now() - start;
+    const status = c.res.status;
+    const userId = (c.get("user") as { id?: string } | undefined)?.id ?? null;
+    console.log(
+      JSON.stringify({
+        type: "request",
+        method,
+        path,
+        status,
+        duration_ms: durationMs,
+        ip,
+        user_id: userId,
+      }),
+    );
+    return;
+  }
 
   // Flags must be known before cloning the request. Disabled logging (the
   // default), exclusions, and IP mismatches never touch the request body.

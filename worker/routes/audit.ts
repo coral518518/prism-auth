@@ -11,7 +11,11 @@ import { randomId } from "../lib/crypto";
 import { encryptSecret, decryptSecret } from "../lib/secretCrypto";
 import { validateOutboundUrl } from "../lib/safeFetch";
 import { getEffectiveMember } from "./teams";
-import { recordAudit, auditRequestMeta } from "../lib/audit";
+import {
+  recordAudit,
+  auditRequestMeta,
+  invalidateAuditWebhooksCache,
+} from "../lib/audit";
 import type { AuditScope, AuditEventRow } from "../lib/audit";
 import type { Variables } from "../types";
 
@@ -426,6 +430,7 @@ async function createWebhook(
       now,
     )
     .run();
+  invalidateAuditWebhooksCache();
 
   // Record after the row exists so the new hook receives its own event.
   await recordWebhookLifecycle(c, scope, scopeId, "webhook.create", {
@@ -485,6 +490,7 @@ async function updateWebhook(
       id,
     )
     .run();
+  invalidateAuditWebhooksCache();
 
   // Record after the update so the edited hook is tested with its new config.
   await recordWebhookLifecycle(c, scope, scopeId, "webhook.update", {
@@ -530,6 +536,7 @@ async function deleteWebhook(
   )
     .bind(...(scopeId === null ? [id, scope] : [id, scope, scopeId]))
     .run();
+  invalidateAuditWebhooksCache();
   return (res.meta.changes ?? 0) > 0;
 }
 

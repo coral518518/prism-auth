@@ -14,6 +14,7 @@
 // over.
 
 import { sha256Hex } from "./crypto";
+import { getConfig } from "./config";
 
 const memoCache = new Map<string, string>();
 
@@ -49,6 +50,7 @@ export async function registerImageProxyMapping(
     )
     .bind(id, url, createdBy, Math.floor(Date.now() / 1000))
     .run();
+  if (memoCache.size > 2000) memoCache.clear();
   memoCache.set(url, id);
   return id;
 }
@@ -58,10 +60,8 @@ export async function registerImageProxyMapping(
  * Local assets (starting with "/") are made absolute using the base URL.
  * Returns null when the input is null/undefined/empty.
  *
- * Registers the mapping inline so the returned URL is always servable.
- * No createdBy because this is the read-path helper — call sites are
- * rendering data that already has its own ownership chain (avatar_url
- * belongs to the user row, icon_url to the app row, etc.).
+ * When disable_image_proxy is active, returns the direct URL to save
+ * both D1 writes and Worker request counts on the free tier.
  */
 export async function proxyImageUrl(
   baseUrl: string,
@@ -70,6 +70,10 @@ export async function proxyImageUrl(
 ): Promise<string | null> {
   if (!url) return null;
   if (url.startsWith("/")) return `${baseUrl}${url}`;
+  const config = await getConfig(db).catch(() => null);
+  if (config?.disable_image_proxy) {
+    return url;
+  }
   const id = await registerImageProxyMapping(db, url);
   return `${baseUrl}/api/proxy/image/${id}`;
 }

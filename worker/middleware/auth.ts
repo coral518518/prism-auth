@@ -2,7 +2,7 @@
 
 import type { Context, MiddlewareHandler, Next } from "hono";
 import { verifyJWT } from "../lib/jwt";
-import { getJwtSecret } from "../lib/config";
+import { getJwtSecret, getConfig } from "../lib/config";
 import { readSessionCookie } from "../lib/cookies";
 import { hashLookupCandidate } from "../lib/secretCrypto";
 import { getIp } from "../lib/clientIp";
@@ -17,6 +17,7 @@ const sessionIpThrottle = new Map<string, number>();
 const SESSION_IP_THROTTLE_SECONDS = 300;
 
 function trackSessionIp(c: Context<AppEnv>, sessionId: string): void {
+  if (c.env.DISABLE_SESSION_IP_TRACKING === "true") return;
   const ip = getIp(c);
   const now = Math.floor(Date.now() / 1000);
   const key = `${sessionId}:${ip}`;
@@ -30,7 +31,11 @@ function trackSessionIp(c: Context<AppEnv>, sessionId: string): void {
 
   const geo = geoJson(c);
   c.executionCtx.waitUntil(
-    recordSessionIp(c.env.DB, sessionId, ip, geo, now).catch(() => undefined),
+    (async () => {
+      const config = await getConfig(c.env.DB);
+      if (config.disable_session_ip_tracking) return;
+      await recordSessionIp(c.env.DB, sessionId, ip, geo, now);
+    })().catch(() => undefined),
   );
 }
 

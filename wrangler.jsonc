@@ -12,7 +12,10 @@
   "compatibility_date": "2024-11-01",
   // Keep global fetch on public Internet routing, including for this zone, so
   // same-zone requests cannot bypass Cloudflare's front door and its controls.
-  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "compatibility_flags": [
+    "nodejs_compat",
+    "global_fetch_strictly_public"
+  ],
   // capjs-core (embedded Cap captcha) lazily `import()`s esbuild and
   // javascript-obfuscator for instrumentation obfuscation level >= 4. Those are
   // Node-native and cannot be bundled for the Worker runtime. We pin the
@@ -115,7 +118,9 @@
   ],
   // Re-verify domains every 6 hours
   "triggers": {
-    "crons": ["0 */6 * * *"],
+    "crons": [
+      "0 */6 * * *"
+    ],
   },
   // ── Non-production environments ─────────────────────────────────────────────
   // Separate Workers with their own isolated D1 + KV so testing never touches
@@ -216,6 +221,18 @@
       ],
       "vars": {
         "APP_URL": "https://prism-preview.siiway.workers.dev",
+        // 1. 完全关闭审计事件写入（立省日常 60%~80% 的 D1 写入）
+        "DISABLE_AUDIT_LOGS": "true",
+        // 2. 完全关闭登录失败日志写入（彻底防止恶意爆破耗尽 10 万次 D1 写入配额）
+        "DISABLE_LOGIN_ERRORS": "true",
+        // 3. 完全关闭每请求记录 IP/地理位置历史
+        "DISABLE_SESSION_IP_TRACKING": "true",
+        // 4. 完全关闭请求日志记录与热路径上的 KV 开关查询
+        "DISABLE_REQUEST_LOGS": "true",
+        // 5. 完全关闭邮件/TG/Discord 通知规则的数据库查询与投递
+        "DISABLE_NOTIFICATIONS": "true",
+        // 6. 外部头像直接由源 CDN 加载，不经过 Worker 代理且不向 D1 写映射
+        "DISABLE_IMAGE_PROXY": "true"
       },
       "triggers": {
         "crons": [],

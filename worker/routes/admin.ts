@@ -6,7 +6,11 @@ import {
   encryptConfigUpdates,
   getConfig,
   setConfigValues,
+  invalidateConfigCache,
+  invalidateJwtSecretCache,
+  invalidateRsaKeyPairCache,
 } from "../lib/config";
+import { invalidateMLDSAKeyCache } from "../lib/mldsa";
 import { invalidLoginRateLimitConfig } from "../lib/loginRateLimit";
 import { getIp } from "../lib/clientIp";
 import { formatGeoLabel } from "../lib/geo";
@@ -1835,6 +1839,10 @@ app.post("/reset/confirm", async (c) => {
     } while (cursor);
   };
   await Promise.all([flushKv(c.env.KV_SESSIONS), flushKv(c.env.KV_CACHE)]);
+  invalidateConfigCache();
+  invalidateJwtSecretCache();
+  invalidateRsaKeyPairCache();
+  invalidateMLDSAKeyCache();
 
   return c.json({ message: "Platform reset complete" });
 });

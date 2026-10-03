@@ -98,14 +98,19 @@ async function loadAuth(c: Context<AppEnv>) {
   }
 }
 
+let cachedTemplate: string | null = null;
+
 async function loadTemplate(c: Context<AppEnv>): Promise<string | null> {
+  if (cachedTemplate) return cachedTemplate;
   if (!c.env.ASSETS) return null;
   // ASSETS is keyed by request URL path; ask it for "/index.html" specifically.
   const url = new URL(c.req.url);
   url.pathname = "/index.html";
   const res = await c.env.ASSETS.fetch(new Request(url.toString()));
   if (!res.ok) return null;
-  return await res.text();
+  const text = await res.text();
+  cachedTemplate = text;
+  return text;
 }
 
 type AppFetch = (

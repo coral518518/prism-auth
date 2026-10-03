@@ -64,11 +64,23 @@ app.use(
     origin: (origin, c) => {
       const appUrl = c.env.APP_URL;
       if (!origin || origin === appUrl) return appUrl;
+      // RFC 6749 & RFC 9449: Public OAuth endpoints allow cross-origin requests from any origin (e.g. browser SPAs)
+      const path = new URL(c.req.url).pathname;
+      if (
+        path === "/api/oauth/token" ||
+        path === "/api/oauth/revoke" ||
+        path === "/api/oauth/userinfo" ||
+        path === "/api/oauth/introspect" ||
+        path === "/api/oauth/par" ||
+        path === "/api/oauth/device_authorization"
+      ) {
+        return origin;
+      }
       return null;
     },
     credentials: true,
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowHeaders: ["Content-Type", "Authorization", "X-Session-Token"],
+    allowHeaders: ["Content-Type", "Authorization", "DPoP", "X-Session-Token"],
   }),
 );
 app.use("*", requestLogger);

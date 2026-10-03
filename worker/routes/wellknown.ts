@@ -11,6 +11,19 @@ const SCOPES_SUPPORTED = USER_GRANTABLE_SCOPES;
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 app.use("*", cors());
+app.use("*", async (c, next) => {
+  await next();
+  if (
+    c.req.method === "GET" &&
+    c.res.status === 200 &&
+    !c.res.headers.has("Cache-Control")
+  ) {
+    c.res.headers.set(
+      "Cache-Control",
+      "public, max-age=3600, s-maxage=86400, stale-while-revalidate=86400",
+    );
+  }
+});
 
 /**
  * Provider metadata shared by the OpenID Connect Discovery document

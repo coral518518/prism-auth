@@ -81,6 +81,10 @@ app.get("/site", async (c) => {
     [] as string[],
   );
 
+  c.header(
+    "Cache-Control",
+    "public, max-age=60, s-maxage=300, stale-while-revalidate=600",
+  );
   return c.json({
     site_name: config.site_name,
     site_description: config.site_description,

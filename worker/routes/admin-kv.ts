@@ -100,9 +100,10 @@ const PROTECTED_KEYS = new Set([
   "system:jwt_secret",
   "system:rsa_keypair",
   "system:mldsa_keypair",
+  "system:ml_dsa65_v1_seed",
 ]);
 
-function isProtected(key: string): boolean {
+export function isProtected(key: string): boolean {
   return PROTECTED_KEYS.has(key);
 }
 

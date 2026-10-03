@@ -66,7 +66,6 @@ async function queryDns(
   const response = await fetch(query, {
     headers: {
       Accept: "application/dns-json",
-      "Cache-Control": "no-cache",
     },
     redirect: "manual",
     signal,

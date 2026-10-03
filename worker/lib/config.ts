@@ -155,7 +155,23 @@ const DEFAULT_CONFIG: SiteConfig = {
   initialized: false,
 };
 
+const CONFIG_CACHE_TTL_MS = 60_000;
+let cachedConfig: SiteConfig | null = null;
+let cachedConfigExpiry = 0;
+let cachedConfigDb: D1Database | null = null;
+
+export function invalidateConfigCache(): void {
+  cachedConfig = null;
+  cachedConfigExpiry = 0;
+  cachedConfigDb = null;
+}
+
 export async function getConfig(db: D1Database): Promise<SiteConfig> {
+  const now = Date.now();
+  if (cachedConfig && db === cachedConfigDb && now < cachedConfigExpiry) {
+    return cachedConfig;
+  }
+
   const rows = await db
     .prepare("SELECT key, value FROM site_config")
     .all<SiteConfigRow>();
@@ -168,6 +184,9 @@ export async function getConfig(db: D1Database): Promise<SiteConfig> {
     }
   }
   migrateLegacyCaptcha(config);
+  cachedConfig = config;
+  cachedConfigExpiry = now + CONFIG_CACHE_TTL_MS;
+  cachedConfigDb = db;
   return config;
 }
 
@@ -249,6 +268,7 @@ export async function setConfigValue(
     )
     .bind(key, JSON.stringify(value), now)
     .run();
+  invalidateConfigCache();
 }
 
 export async function setConfigValues(
@@ -268,6 +288,7 @@ export async function setConfigValues(
       .bind(k, JSON.stringify(v), now),
   );
   await db.batch(stmts);
+  invalidateConfigCache();
 }
 
 /**
@@ -337,9 +358,23 @@ export async function isInitialized(db: D1Database): Promise<boolean> {
 
 const JWT_SECRET_KEY = "system:jwt_secret";
 
+let cachedJwtSecret: string | null = null;
+let cachedJwtKv: KVNamespace | null = null;
+
+export function invalidateJwtSecretCache(): void {
+  cachedJwtSecret = null;
+  cachedJwtKv = null;
+}
+
 export async function getJwtSecret(kv: KVNamespace): Promise<string> {
+  if (cachedJwtSecret && kv === cachedJwtKv) return cachedJwtSecret;
+
   const existing = await kv.get(JWT_SECRET_KEY);
-  if (existing) return existing;
+  if (existing) {
+    cachedJwtSecret = existing;
+    cachedJwtKv = kv;
+    return existing;
+  }
 
   // First call: generate a cryptographically random 256-bit secret
   const bytes = crypto.getRandomValues(new Uint8Array(32));
@@ -348,6 +383,8 @@ export async function getJwtSecret(kv: KVNamespace): Promise<string> {
     .join("");
 
   await kv.put(JWT_SECRET_KEY, secret);
+  cachedJwtSecret = secret;
+  cachedJwtKv = kv;
   return secret;
 }
 
@@ -368,7 +405,17 @@ export interface RsaKeyPair {
   publicKeyJwk: JsonWebKey;
 }
 
+let cachedRsaKeyPair: RsaKeyPair | null = null;
+let cachedRsaKv: KVNamespace | null = null;
+
+export function invalidateRsaKeyPairCache(): void {
+  cachedRsaKeyPair = null;
+  cachedRsaKv = null;
+}
+
 export async function getRsaKeyPair(kv: KVNamespace): Promise<RsaKeyPair> {
+  if (cachedRsaKeyPair && kv === cachedRsaKv) return cachedRsaKeyPair;
+
   const stored = await kv.get(RSA_KEYPAIR_KEY);
   if (stored) {
     const { kid, publicKeyJwk, privateKeyJwk } = JSON.parse(
@@ -390,7 +437,10 @@ export async function getRsaKeyPair(kv: KVNamespace): Promise<RsaKeyPair> {
         ["sign"],
       ),
     ]);
-    return { kid, publicKey, privateKey, publicKeyJwk };
+    const pair = { kid, publicKey, privateKey, publicKeyJwk };
+    cachedRsaKeyPair = pair;
+    cachedRsaKv = kv;
+    return pair;
   }
 
   const keyPair = (await crypto.subtle.generateKey(
@@ -415,10 +465,13 @@ export async function getRsaKeyPair(kv: KVNamespace): Promise<RsaKeyPair> {
     JSON.stringify({ kid, publicKeyJwk, privateKeyJwk }),
   );
 
-  return {
+  const pair = {
     kid,
     publicKey: keyPair.publicKey,
     privateKey: keyPair.privateKey,
     publicKeyJwk,
   };
+  cachedRsaKeyPair = pair;
+  cachedRsaKv = kv;
+  return pair;
 }

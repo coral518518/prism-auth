@@ -77,7 +77,7 @@ export function sanitizeSvg(raw: string): string {
 function responseHeaders(contentType: string, ttl: number): Headers {
   return new Headers({
     "Content-Type": contentType,
-    "Cache-Control": `public, max-age=${ttl}`,
+    "Cache-Control": `public, max-age=${ttl}, s-maxage=604800, stale-while-revalidate=86400`,
     "X-Content-Type-Options": "nosniff",
     "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
     "Access-Control-Allow-Origin": "*",
@@ -179,10 +179,35 @@ app.post("/register", requireAuth, async (c) => {
   return c.json({ id });
 });
 
+function returnWithEdgeCache(
+  c: import("hono").Context<AppEnv>,
+  response: Response,
+): Response {
+  const edgeCache = typeof caches !== "undefined" ? caches.default : null;
+  if (edgeCache && c.executionCtx && response.ok) {
+    c.executionCtx.waitUntil(
+      edgeCache.put(c.req.raw, response.clone()).catch(() => {}),
+    );
+  }
+  return response;
+}
+
 app.get("/:id", async (c) => {
   const id = c.req.param("id");
   if (!/^[0-9a-f]{32}$/.test(id)) {
     return c.json({ error: "Invalid id" }, 400);
+  }
+
+  // Cloudflare Edge Cache API (caches.default): serves popular avatars directly from
+  // the edge PoP without touching D1 or subrequests.
+  const edgeCache = typeof caches !== "undefined" ? caches.default : null;
+  if (edgeCache) {
+    try {
+      const match = await edgeCache.match(c.req.raw);
+      if (match) return match;
+    } catch {
+      // Ignore edge cache errors and fall back to database fetch
+    }
   }
 
   const row = await c.env.DB.prepare(
@@ -207,9 +232,12 @@ app.get("/:id", async (c) => {
   );
   const cached = await readCached(c, id, config.avatar_proxy_cache_mode);
   if (cached)
-    return new Response(cached.bytes, {
-      headers: responseHeaders(cached.contentType, ttl),
-    });
+    return returnWithEdgeCache(
+      c,
+      new Response(cached.bytes, {
+        headers: responseHeaders(cached.contentType, ttl),
+      }),
+    );
 
   const rawUrl = row.url;
 
@@ -282,7 +310,7 @@ app.get("/:id", async (c) => {
       c.executionCtx.waitUntil(
         writeCached(c, id, bytes, ct, config.avatar_proxy_cache_mode, ttl),
       );
-    return new Response(bytes, { headers });
+    return returnWithEdgeCache(c, new Response(bytes, { headers }));
   }
 
   if (
@@ -322,12 +350,18 @@ app.get("/:id", async (c) => {
           ttl,
         ),
       );
-    return new Response(bytes, { headers: responseHeaders(contentType, ttl) });
+    return returnWithEdgeCache(
+      c,
+      new Response(bytes, { headers: responseHeaders(contentType, ttl) }),
+    );
   }
 
-  return new Response(
-    upstream.body ? limitStreamBytes(upstream.body, maxBytes) : null,
-    { headers },
+  return returnWithEdgeCache(
+    c,
+    new Response(
+      upstream.body ? limitStreamBytes(upstream.body, maxBytes) : null,
+      { headers },
+    ),
   );
 });
 

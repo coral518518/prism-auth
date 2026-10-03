@@ -280,9 +280,7 @@ async function loadAssignments(
   db: D1Database,
   teamIds: string[],
   restrict:
-    | { userId: string }
-    | { userIds: string[] }
-    | { memberOfTeamId: string },
+    { userId: string } | { userIds: string[] } | { memberOfTeamId: string },
 ): Promise<AssignmentRow[]> {
   const out: AssignmentRow[] = [];
   for (const group of chunk([...new Set(teamIds)], BIND_CHUNK)) {

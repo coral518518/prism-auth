@@ -9,13 +9,26 @@ import { getIp } from "../lib/clientIp";
 import { geoJson, recordSessionIp } from "../lib/geo";
 import type { AuthUser, Variables } from "../types";
 
-// Fire-and-forget: append the request's IP + Cloudflare geolocation to the
-// session's history so the security page can show where a session has been
-// used from. Wrapped by the caller in waitUntil; never blocks the request.
+// In-memory throttle: on the Cloudflare Free Tier, D1 allows only 100k writes/day.
+// Unconditionally updating session_ips.last_seen on every request can rapidly exhaust
+// the daily write budget. We throttle updates to at most once per 5 minutes (300s)
+// per (session, IP) pair.
+const sessionIpThrottle = new Map<string, number>();
+const SESSION_IP_THROTTLE_SECONDS = 300;
+
 function trackSessionIp(c: Context<AppEnv>, sessionId: string): void {
   const ip = getIp(c);
-  const geo = geoJson(c);
   const now = Math.floor(Date.now() / 1000);
+  const key = `${sessionId}:${ip}`;
+  const lastWrite = sessionIpThrottle.get(key) ?? 0;
+  if (now - lastWrite < SESSION_IP_THROTTLE_SECONDS) return;
+
+  sessionIpThrottle.set(key, now);
+  if (sessionIpThrottle.size > 5000) {
+    sessionIpThrottle.clear();
+  }
+
+  const geo = geoJson(c);
   c.executionCtx.waitUntil(
     recordSessionIp(c.env.DB, sessionId, ip, geo, now).catch(() => undefined),
   );
@@ -152,6 +165,9 @@ export const requireAdmin: MiddlewareHandler<AppEnv> = async (c, next) => {
  * Pattern: register before `requireAuth` for any route group whose dashboard
  * endpoints should also be reachable via PAT.
  */
+const patLastUsedThrottle = new Map<string, number>();
+const PAT_LAST_USED_THROTTLE_SECONDS = 300;
+
 export function tryPatAuth(scopes: {
   read: string;
   write: string;
@@ -224,16 +240,21 @@ export function tryPatAuth(scopes: {
     // for policy or auditing in addition to consulting the effective role.
     c.set("patAuth", true);
 
-    // Best-effort: bump last-used timestamp; never block the request on this
-    c.executionCtx.waitUntil(
-      c.env.DB.prepare(
-        "UPDATE personal_access_tokens SET last_used_at = ? WHERE id = ?",
-      )
-        .bind(now, pat.id)
-        .run()
-        .then(() => undefined)
-        .catch(() => undefined),
-    );
+    // Best-effort: bump last-used timestamp; throttled to reduce D1 writes on the free tier
+    const lastPatWrite = patLastUsedThrottle.get(pat.id) ?? 0;
+    if (now - lastPatWrite >= PAT_LAST_USED_THROTTLE_SECONDS) {
+      patLastUsedThrottle.set(pat.id, now);
+      if (patLastUsedThrottle.size > 2000) patLastUsedThrottle.clear();
+      c.executionCtx.waitUntil(
+        c.env.DB.prepare(
+          "UPDATE personal_access_tokens SET last_used_at = ? WHERE id = ?",
+        )
+          .bind(now, pat.id)
+          .run()
+          .then(() => undefined)
+          .catch(() => undefined),
+      );
+    }
 
     await next();
   };

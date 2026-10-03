@@ -18,7 +18,17 @@ async function deriveKid(publicKey: Uint8Array): Promise<string> {
   return bufToBase64url(new Uint8Array(hash)).slice(0, 22);
 }
 
+let cachedMLDSAKey: MLDSAKey | null = null;
+let cachedKv: KVNamespace | null = null;
+
+export function invalidateMLDSAKeyCache(): void {
+  cachedMLDSAKey = null;
+  cachedKv = null;
+}
+
 export async function getMLDSAKey(kv: KVNamespace): Promise<MLDSAKey> {
+  if (cachedMLDSAKey && kv === cachedKv) return cachedMLDSAKey;
+
   const existing = await kv.get(KV_SEED_KEY);
   let seed: Uint8Array;
 
@@ -31,5 +41,8 @@ export async function getMLDSAKey(kv: KVNamespace): Promise<MLDSAKey> {
 
   const { secretKey, publicKey } = ml_dsa65.keygen(seed);
   const kid = await deriveKid(publicKey);
-  return { publicKey, secretKey, kid };
+  const result = { publicKey, secretKey, kid };
+  cachedMLDSAKey = result;
+  cachedKv = kv;
+  return result;
 }

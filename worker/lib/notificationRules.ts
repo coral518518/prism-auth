@@ -65,13 +65,10 @@ export interface RuleSendChannelDiscord {
 }
 
 export type RuleSendChannel =
-  | RuleSendChannelEmail
-  | RuleSendChannelTg
-  | RuleSendChannelDiscord;
+  RuleSendChannelEmail | RuleSendChannelTg | RuleSendChannelDiscord;
 
 export type RuleAction =
-  | { type: "drop" }
-  | { type: "send"; channels: RuleSendChannel[] };
+  { type: "drop" } | { type: "send"; channels: RuleSendChannel[] };
 
 export interface NotificationRule {
   id: string;

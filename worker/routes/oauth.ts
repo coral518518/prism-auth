@@ -3994,6 +3994,8 @@ async function lookupAccessToken(
  *  for kind='team' rows, but enforcing it here means a single misbehaving
  *  insert can't bypass the team-user invariant.
  */
+const patLastUsedThrottleOAuth = new Map<string, number>();
+
 async function resolveBearerToken(
   c: Context<AppEnv>,
   requiredScope: string,
@@ -4049,13 +4051,21 @@ async function resolveBearerToken(
     if (pat.expires_at !== null && pat.expires_at < now) return null;
     const scopes = JSON.parse(pat.scopes) as string[];
     if (!scopes.includes(requiredScope)) return null;
-    // Update last_used_at asynchronously (best-effort)
-    c.env.DB.prepare(
-      "UPDATE personal_access_tokens SET last_used_at = ? WHERE id = ?",
-    )
-      .bind(now, pat.id)
-      .run()
-      .catch(() => {});
+    // Update last_used_at asynchronously (best-effort, throttled for D1 free tier limits)
+    const lastPatSeen = patLastUsedThrottleOAuth.get(pat.id) ?? 0;
+    if (now - lastPatSeen >= 300) {
+      patLastUsedThrottleOAuth.set(pat.id, now);
+      if (patLastUsedThrottleOAuth.size > 2000)
+        patLastUsedThrottleOAuth.clear();
+      c.executionCtx.waitUntil(
+        c.env.DB.prepare(
+          "UPDATE personal_access_tokens SET last_used_at = ? WHERE id = ?",
+        )
+          .bind(now, pat.id)
+          .run()
+          .catch(() => {}),
+      );
+    }
     resolvedUserId = pat.user_id;
     resolvedScopes = scopes;
   } else if (raw.split(".").length === 3) {

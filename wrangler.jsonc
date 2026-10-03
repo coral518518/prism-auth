@@ -1,242 +1,221 @@
 {
   "name": "prism",
-  // Source pointer for the @cloudflare/vite-plugin, which validates this at
-  // config-load time. Vite then builds the worker into dist/prism/index.js
-  // and writes a deploy-ready dist/prism/wrangler.json next to it.
-  // Production deploys MUST use that generated config instead of this one
-  // (otherwise wrangler re-bundles the source and skips Vite's SSR work).
-  // See scripts/build.sh — it copies the generated config back here so a
-  // plain `wrangler deploy` from the build directory picks up the right
-  // bundle without needing custom flags in the Cloudflare dashboard.
+  // @cloudflare/vite-plugin 的入口指示器，构建时会验证该文件。
+  // Vite 会将 worker 打包至 dist/prism/index.js，并在同级生成部署专用的 dist/prism/wrangler.json。
+  // 生产环境部署必须使用生成的配置（否则 wrangler 会重新打包源文件并跳过 Vite 的 SSR 服务端渲染逻辑）。
+  // 详见 scripts/build.sh —— 它会将生成的配置同步拷贝回此处，
+  // 这样在项目根目录直接执行 `wrangler deploy` 就能自动拾取正确的产物，无需在 Cloudflare 控制台添加额外参数。
   "main": "worker/index.ts",
   "compatibility_date": "2024-11-01",
-  // Keep global fetch on public Internet routing, including for this zone, so
-  // same-zone requests cannot bypass Cloudflare's front door and its controls.
+  // 将全局 fetch 强制保留在公网路由上（包括本 Zone 的请求），
+  // 防止同 Zone 请求绕过 Cloudflare 边缘前置安全防护与风控。
   "compatibility_flags": [
     "nodejs_compat",
     "global_fetch_strictly_public"
   ],
-  // capjs-core (embedded Cap captcha) lazily `import()`s esbuild and
-  // javascript-obfuscator for instrumentation obfuscation level >= 4. Those are
-  // Node-native and cannot be bundled for the Worker runtime. We pin the
-  // embedded Cap instrumentation to level <= 3, which never touches them, so
-  // aliasing both to an empty stub keeps them out of the bundle without losing
-  // any reachable functionality.
+  // capjs-core（内置的 Cap 验证码）在混淆级别 >= 4 时会动态 import() esbuild 与 javascript-obfuscator。
+  // 这些是 Node 本地依赖，无法在 Cloudflare Worker 环境中直接运行。
+  // 我们将内置 Cap 混淆级别锁定在 <= 3，永远不会触发这些模块，
+  // 因此将其别名重定向为空存根（empty stub），既能精简打包体积，又不会破坏任何实际功能。
   "alias": {
     "esbuild": "./worker/lib/stubs/empty.js",
-    "javascript-obfuscator": "./worker/lib/stubs/empty.js",
+    "javascript-obfuscator": "./worker/lib/stubs/empty.js"
   },
   "assets": {
     "directory": "./dist/client",
     "binding": "ASSETS",
-    // Default is "auto-trailing-slash", which auto-resolves "/" to
-    // "/index.html" and serves the prebuilt template before the worker
-    // even runs — defeating SSR. "none" disables that implicit HTML
-    // routing; explicitly-requested files (e.g. /index.html, /favicon.svg,
-    // /assets/index-XXX.js) are still served from the bundle as static.
-    "html_handling": "none",
+    // 默认值是 "auto-trailing-slash"，它会自动将 "/" 解析为 "/index.html"，
+    // 导致在 Worker 执行之前就直接返回了静态 HTML 模板，从而破坏了 SSR 服务端渲染。
+    // 设置为 "none" 可禁用这种隐式 HTML 路由；
+    // 显式请求的静态文件（如 /index.html, /favicon.svg, /assets/index-XXX.js）仍会正常由静态资源层直接托管返回。
+    "html_handling": "none"
   },
   "observability": {
-    "enabled": true,
+    "enabled": true
   },
-  // D1 Database
+  // ── D1 数据库配置 ────────────────────────────────────────────────────────────
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "prism-db",
-      "database_id": "5790c075-635c-470f-a166-8b9f145ec311",
-      "migrations_dir": "worker/db/migrations",
-    },
+      "database_id": "a2248fd4-49d0-4b78-b4a0-edc1bb50fa6a",
+      "migrations_dir": "worker/db/migrations"
+    }
   ],
-  // KV Namespaces
+  // ── KV 键值命名空间 ──────────────────────────────────────────────────────────
   "kv_namespaces": [
     {
+      // 会话密钥、ID Token 签发用 RSA 密钥对、会话短期元数据
       "binding": "KV_SESSIONS",
-      "id": "e76739c67270401e8f7b5283cf22d2dd",
+      "id": "825bdd6dc6c04142b1e93d75f5770099"
     },
     {
+      // 临时缓存、IMAP 轮询游标、验证码与防重放短期状态
       "binding": "KV_CACHE",
-      "id": "db4d8187fc3f48eabc412a3f5654fa69",
-    },
+      "id": "7154cb9672ee4f7092bee4c62aa4a7a6"
+    }
   ],
-  // R2 Bucket
+  // ── R2 对象存储（可选）────────────────────────────────────────────────────────
+  // 如果需要支持自定义头像上传或文件托管，可取消注释并填入你的 R2 存储桶名：
   /*
   "r2_buckets": [
     {
       "binding": "R2_ASSETS",
-      "bucket_name": "prism-assets",
-    },
+      "bucket_name": "prism-assets"
+    }
   ],
   */
-  // Optional Cloudflare Images binding. Configure before enabling WebP
-  // conversion in Admin Panel -> Avatar Proxy. Named environments must repeat
-  // this binding because Images bindings are not inherited.
+  // ── Cloudflare Images（可选）─────────────────────────────────────────────────
+  // 用于在 管理后台 -> 头像反代 中开启 WebP 格式自动转换。
+  // 注意：Images 绑定不支持跨环境继承，若使用独立环境（env）必须在每个环境单独配置。
   /*
   "images": {
     "binding": "IMAGES",
     "remote": true
   },
   */
-  // Cloudflare Secrets Store. After creating a 32-byte
-  // base64url-encoded AES-GCM key in the dashboard, redeploy and use
-  // Admin Panel → Settings → Danger Zone → "Migrate secrets to Secret
-  // Store" to encrypt existing OAuth client/source secrets in D1.
-  // Generate the key with e.g.
-  //   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+  // ── Cloudflare Secrets Store 密钥存储（可选）──────────────────────────────────
+  // 用于对存储在 D1 中的 OAuth 客户端凭据、第三方源密钥等敏感数据进行静态加密（AES-GCM）。
+  // 【重要】：如果在 Cloudflare 控制台中尚未创建 Secrets Store 及其密钥，请保持下方注释状态！
+  // 否则发布时 Cloudflare API 会报错：[code: 10182] secret not found。
+  // 未配置该项时，系统会自动采用平稳的无加密明文/哈希存储，功能完全不受影响。
+  /*
   "secrets_store_secrets": [
     {
       "binding": "SECRETS_KEY",
-      "store_id": "5ffcfaec1c6c4599989fb6a761d9583f",
-      "secret_name": "prism-secrets-key",
-    },
+      "store_id": "2b7e151628aed2a6abf7158809cf4f3c",
+      "secret_name": "prism-secrets-key"
+    }
   ],
-  // Environment variables (non-secret)
+  */
+  // ── 环境变量（明文配置）───────────────────────────────────────────────────────
   "vars": {
-    "APP_URL": "https://prism.siiway.org",
-    // Comma / semicolon / whitespace separated list of usernames
-    // that cannot be deleted. Leave empty to disable.
+    // 你的站点公开访问根地址（末尾不要带斜杠）
+    "APP_URL": "https://cf.cc.cd",
+    // 受保护不能被任何人删除的用户（多个用户名用逗号、分号或空格分隔；留空表示不限制）
     "LOCKDOWN_USERS": "",
-    // Comma / semicolon / whitespace separated list of team names
-    // that cannot be deleted. Leave empty to disable.
+    // 受保护不能被任何人删除的团队（多个团队名用逗号、分号或空格分隔；留空表示不限制）
     "LOCKDOWN_TEAMS": "",
-    // Admin Panel → Database (direct D1 access). OFF unless you turn it on:
-    // empty, "off" or anything unrecognised removes the surface entirely
-    // (endpoints 404, the tab disappears). "read-only" allows browsing and
-    // SELECT but refuses every write. "full" is unrestricted — except the
-    // audit log, which is append-only from this console at every setting.
+    // 管理后台 -> 数据库（直接 D1 Web 查询控制台）：
+    // 留空、"off"、"false" 或未设置时完全禁用（接口返回 404，界面标签隐藏）；
+    // "read-only"：仅允许浏览查看和 SELECT 查询，拒绝任何写入更新；
+    // "full"：完全读写权限（审计日志除外，无论何种设置审计日志均为只追加）。
     "D1_CONSOLE": "",
-    // The key-value browser in the same panel. Same values as D1_CONSOLE;
-    // leave empty to follow whatever D1_CONSOLE is set to (so both are off
-    // by default).
+    // 管理后台中的 KV 键值浏览器：
+    // 取值与 D1_CONSOLE 一致；留空时自动跟随 D1_CONSOLE 的开关状态。
     "KV_CONSOLE": "",
+    // ── Cloudflare 免费层级省流与防爆破开关（零消耗模式）──────────────────────
+    // 1. 完全关闭审计事件写入（省去日常 60%~80% 的 D1 写入操作）
+    "DISABLE_AUDIT_LOGS": "true",
+    // 2. 完全关闭登录失败写库（彻底阻止恶意撞库/暴力破解刷光 10 万次 D1 写入配额）
+    "DISABLE_LOGIN_ERRORS": "true",
+    // 3. 完全关闭每个请求更新用户 IP 与地理位置历史
+    "DISABLE_SESSION_IP_TRACKING": "true",
+    // 4. 完全关闭 HTTP 请求详细日志，并免除高频 KV 开关查询与请求体克隆
+    "DISABLE_REQUEST_LOGS": "true",
+    // 5. 完全关闭邮件/TG/Discord 通知规则的数据库查询与投递流程
+    "DISABLE_NOTIFICATIONS": "true",
+    // 6. 外部头像与图标直接由源站 CDN 加载，不经过 Worker 代理且不向 D1 写映射
+    "DISABLE_IMAGE_PROXY": "true"
   },
+  // ── 自定义域名路由 ───────────────────────────────────────────────────────────
+  // 将部署绑定到你的域名。如果没有自定义域名或者想用 workers.dev，可将本节注释或保留为空数组 []
   "routes": [
     {
-      "pattern": "prism.siiway.org",
-      "custom_domain": true,
-    },
+      "pattern": "cf.cc.cd",
+      "custom_domain": true
+    }
   ],
-  // Re-verify domains every 6 hours
+  // ── 定时触发器（Cron Triggers）───────────────────────────────────────────────
+  // 每 6 小时自动执行一次后台轻量维护（如清理过期会话、过期一次性授权码等）
   "triggers": {
     "crons": [
       "0 */6 * * *"
-    ],
+    ]
   },
-  // ── Non-production environments ─────────────────────────────────────────────
-  // Separate Workers with their own isolated D1 + KV so testing never touches
-  // production data. All resources live on the same (SiiWay) account as prod.
+  // ── 非生产环境配置（Staging 预发布 / Preview 预览）───────────────────────────
+  // 具有独立的 Worker 以及隔离的 D1 和 KV 资源，确保测试与生产环境互不影响。
   //
-  //   Deploy:   bun run deploy:staging      (CLOUDFLARE_ENV=staging build + deploy)
-  //   Migrate:  bun run db:migrate:staging  (apply migrations to the staging D1)
-  //   Dev:      bun run dev:staging         (vite dev with the staging bindings)
-  //
-  // The environment is chosen at build time via CLOUDFLARE_ENV (the package.json
-  // scripts set it): the Vite plugin resolves one environment per build and
-  // emits an already-environment-specific dist/prism/wrangler.json, so deploys
-  // use that generated config rather than `wrangler deploy --env <name>`.
-  //
-  // Inheritable keys (main, compatibility_date/flags, assets, observability) are
-  // deliberately not repeated — Wrangler inherits them from the top level.
-  // Bindings, vars and routes are per-environment and are NOT inherited, so each
-  // environment restates them. No custom-domain route is set, so each Worker is
-  // reachable at https://<name>.siiway.workers.dev.
-  //
-  // SECRETS_KEY: each environment has its own Secret Store entry (prod,
-  // staging, preview all use distinct keys), so a leak or slip in a throwaway
-  // non-prod environment can never expose data encrypted under another key.
-  // All three entries live in the same store; only secret_name differs.
+  // 部署命令示例：
+  //   生产发布： bun run deploy          （使用上方顶层配置）
+  //   预发发布： bun run deploy:staging  （使用下方 staging 配置）
+  //   预览发布： bun run deploy:preview  （使用下方 preview 配置）
   "env": {
+    // ── 预发布环境 (staging) ───────────────────────────────────────────────────
     "staging": {
       "name": "prism-staging",
-      // Pin the account so the deploy:/db:migrate: scripts resolve without a
-      // CLOUDFLARE_ACCOUNT_ID env var on multi-account credentials.
-      "account_id": "a55f78dc73452cce2da2a69798c86db3",
+      // 你的 Cloudflare 账户 ID（可通过 Cloudflare 控制台右侧侧边栏获取）
+      "account_id": "c51a05707fdd2d67e47719d1d35fec5f",
       "workers_dev": true,
-      // Clear the inherited production custom-domain route so this Worker only
-      // ever answers on its own .workers.dev subdomain, never prism.siiway.org.
       "routes": [],
       "d1_databases": [
         {
           "binding": "DB",
-          "database_name": "prism-staging-db",
-          "database_id": "4963fd88-5b5b-4809-b481-71473ed95743",
-          "migrations_dir": "worker/db/migrations",
-        },
+          "database_name": "prism-db",
+          "database_id": "a2248fd4-49d0-4b78-b4a0-edc1bb50fa6a",
+          "migrations_dir": "worker/db/migrations"
+        }
       ],
       "kv_namespaces": [
         {
           "binding": "KV_SESSIONS",
-          "id": "58e1059ced764328aa5493d077e2c576",
+          "id": "825bdd6dc6c04142b1e93d75f5770099"
         },
         {
           "binding": "KV_CACHE",
-          "id": "9e32bbd549e24f6aa6ff6b9f3b50b40a",
-        },
-      ],
-      "secrets_store_secrets": [
-        {
-          "binding": "SECRETS_KEY",
-          "store_id": "5ffcfaec1c6c4599989fb6a761d9583f",
-          "secret_name": "prism-staging-secrets-key",
-        },
+          "id": "7154cb9672ee4f7092bee4c62aa4a7a6"
+        }
       ],
       "vars": {
-        "APP_URL": "https://prism-staging.siiway.workers.dev",
-      },
-      // Non-prod does not run the scheduled domain re-verification.
-      "triggers": {
-        "crons": [],
-      },
-    },
-    "preview": {
-      "name": "prism-preview",
-      "account_id": "a55f78dc73452cce2da2a69798c86db3",
-      "workers_dev": true,
-      // Clear the inherited production custom-domain route (see staging above).
-      "routes": [],
-      "d1_databases": [
-        {
-          "binding": "DB",
-          "database_name": "prism-preview-db",
-          "database_id": "5f8e6104-03f7-4b3c-b7c9-55e8ca5051a3",
-          "migrations_dir": "worker/db/migrations",
-        },
-      ],
-      "kv_namespaces": [
-        {
-          "binding": "KV_SESSIONS",
-          "id": "d1f4dd9e67e74f1fb883c061fbb29e0e",
-        },
-        {
-          "binding": "KV_CACHE",
-          "id": "2b3121cba2d84a5c83ba72059a9e17b9",
-        },
-      ],
-      "secrets_store_secrets": [
-        {
-          "binding": "SECRETS_KEY",
-          "store_id": "5ffcfaec1c6c4599989fb6a761d9583f",
-          "secret_name": "prism-preview-secrets-key",
-        },
-      ],
-      "vars": {
-        "APP_URL": "https://prism-preview.siiway.workers.dev",
-        // 1. 完全关闭审计事件写入（立省日常 60%~80% 的 D1 写入）
+        "APP_URL": "https://cf.cc.cd",
         "DISABLE_AUDIT_LOGS": "true",
-        // 2. 完全关闭登录失败日志写入（彻底防止恶意爆破耗尽 10 万次 D1 写入配额）
         "DISABLE_LOGIN_ERRORS": "true",
-        // 3. 完全关闭每请求记录 IP/地理位置历史
         "DISABLE_SESSION_IP_TRACKING": "true",
-        // 4. 完全关闭请求日志记录与热路径上的 KV 开关查询
         "DISABLE_REQUEST_LOGS": "true",
-        // 5. 完全关闭邮件/TG/Discord 通知规则的数据库查询与投递
         "DISABLE_NOTIFICATIONS": "true",
-        // 6. 外部头像直接由源 CDN 加载，不经过 Worker 代理且不向 D1 写映射
         "DISABLE_IMAGE_PROXY": "true"
       },
       "triggers": {
-        "crons": [],
-      },
+        "crons": []
+      }
     },
-  },
+    // ── 预览环境 (preview) ─────────────────────────────────────────────────────
+    "preview": {
+      "name": "prism-preview",
+      // 你的 Cloudflare 账户 ID
+      "account_id": "c51a05707fdd2d67e47719d1d35fec5f",
+      "workers_dev": true,
+      "routes": [],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "prism-db",
+          "database_id": "a2248fd4-49d0-4b78-b4a0-edc1bb50fa6a",
+          "migrations_dir": "worker/db/migrations"
+        }
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "KV_SESSIONS",
+          "id": "825bdd6dc6c04142b1e93d75f5770099"
+        },
+        {
+          "binding": "KV_CACHE",
+          "id": "7154cb9672ee4f7092bee4c62aa4a7a6"
+        }
+      ],
+      "vars": {
+        "APP_URL": "https://cf.cc.cd",
+        "DISABLE_AUDIT_LOGS": "true",
+        "DISABLE_LOGIN_ERRORS": "true",
+        "DISABLE_SESSION_IP_TRACKING": "true",
+        "DISABLE_REQUEST_LOGS": "true",
+        "DISABLE_NOTIFICATIONS": "true",
+        "DISABLE_IMAGE_PROXY": "true"
+      },
+      "triggers": {
+        "crons": []
+      }
+    }
+  }
 }

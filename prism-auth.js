@@ -282,8 +282,8 @@ export class PrismWorker {
             const stateSig = await hmacSign(stateB64, env.PRISM_CLIENT_SECRET);
             const stateToken = `${stateB64}.${stateSig}`;
 
-            // 网页端未登录：重定向至 Prism 登录（标准端点为 /api/oauth/authorize）
-            const authUrl = new URL(`${prismBase}/api/oauth/authorize`);
+            // 网页端未登录：重定向至 Prism 登录（直接使用前端页面路由，省去一次 302 重定向套娃）
+            const authUrl = new URL(`${prismBase}/oauth/authorize`);
             authUrl.searchParams.set("client_id", env.PRISM_CLIENT_ID);
             authUrl.searchParams.set("redirect_uri", `${url.origin}/auth/callback`);
             authUrl.searchParams.set("response_type", "code");

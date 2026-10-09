@@ -14,6 +14,7 @@ import {
 import { getMLDSAKey } from "../lib/mldsa";
 import {
   signAccessToken,
+  signIdTokenRS256,
   verifyAccessToken,
   verifyIdTokenRS256,
   extractAud,
@@ -2319,19 +2320,15 @@ app.post("/token", async (c) => {
     // whether this request may continue: two redemptions racing here both
     // pass the checks above, and only the one that actually removes the row
     // gets to mint tokens.
-    const consumed = await c.env.DB.prepare(
-      "DELETE FROM oauth_codes WHERE code = ?",
-    )
-      .bind(codeRow.code)
-      .run();
+    // Consume code and load user in a single D1 batch round-trip!
+    const [consumed, userResult] = await c.env.DB.batch<[D1Result, D1Result<UserRow>]>([
+      c.env.DB.prepare("DELETE FROM oauth_codes WHERE code = ?").bind(codeRow.code),
+      c.env.DB.prepare("SELECT * FROM users WHERE id = ? AND kind = 'user'").bind(codeRow.user_id),
+    ]);
     if (consumed.meta.changes !== 1)
       return c.json({ error: "invalid_grant" }, 400);
 
-    const user = await c.env.DB.prepare(
-      "SELECT * FROM users WHERE id = ? AND kind = 'user'",
-    )
-      .bind(codeRow.user_id)
-      .first<UserRow>();
+    const user = userResult.results?.[0];
     if (!user || !user.is_active)
       return c.json({ error: "invalid_grant" }, 400);
 
@@ -2377,7 +2374,8 @@ app.post("/token", async (c) => {
     // the supplied JWT via the OR-pattern.
     const storedAccess = await hashSecret(c.env, accessToken);
     const storedRefresh = await hashSecret(c.env, refreshToken);
-    await c.env.DB.prepare(
+
+    const insertTokenPromise = c.env.DB.prepare(
       `INSERT INTO oauth_tokens (id, access_token, refresh_token, client_id, user_id, scopes, resource, dpop_jkt, auth_time, amr, expires_at, refresh_expires_at, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
@@ -2398,6 +2396,30 @@ app.post("/token", async (c) => {
       )
       .run();
 
+    const idTokenPromise = scopes.includes("openid")
+      ? getRsaKeyPair(c.env.KV_SESSIONS).then((rsaKeyPair) =>
+          buildIdToken(
+            user,
+            clientId,
+            scopes,
+            codeRow.nonce,
+            rsaKeyPair.privateKey,
+            rsaKeyPair.kid,
+            atTtl,
+            c.env.APP_URL,
+            c.env.DB,
+            {
+              authTime: codeRow.auth_time,
+              amr: codeRow.amr ? (JSON.parse(codeRow.amr) as string[]) : null,
+              sid: codeRow.session_id,
+            },
+            oauthApp,
+          ),
+        )
+      : Promise.resolve(undefined);
+
+    const [, idToken] = await Promise.all([insertTokenPromise, idTokenPromise]);
+
     const response: Record<string, unknown> = {
       access_token: accessToken,
       token_type: dpopJkt ? "DPoP" : "Bearer",
@@ -2405,25 +2427,7 @@ app.post("/token", async (c) => {
       scope: scopes.join(" "),
     };
     if (refreshToken) response.refresh_token = refreshToken;
-    if (scopes.includes("openid")) {
-      const rsaKeyPair = await getRsaKeyPair(c.env.KV_SESSIONS);
-      response.id_token = await buildIdToken(
-        user,
-        clientId,
-        scopes,
-        codeRow.nonce,
-        rsaKeyPair.privateKey,
-        rsaKeyPair.kid,
-        atTtl,
-        c.env.APP_URL,
-        c.env.DB,
-        {
-          authTime: codeRow.auth_time,
-          amr: codeRow.amr ? (JSON.parse(codeRow.amr) as string[]) : null,
-          sid: codeRow.session_id,
-        },
-      );
-    }
+    if (idToken) response.id_token = idToken;
     return c.json(response);
   }
 
@@ -5771,13 +5775,18 @@ async function buildClaims(
   scopes: string[],
   db: D1Database,
   appUrl: string,
+  oauthApp?: OAuthAppRow | null,
 ): Promise<Record<string, unknown>> {
-  const appRow = await db
-    .prepare("SELECT oidc_fields FROM oauth_apps WHERE client_id = ?")
-    .bind(clientId)
-    .first<{ oidc_fields: string }>();
+  let oidcFieldsRaw = oauthApp?.oidc_fields;
+  if (oidcFieldsRaw === undefined) {
+    const appRow = await db
+      .prepare("SELECT oidc_fields FROM oauth_apps WHERE client_id = ?")
+      .bind(clientId)
+      .first<{ oidc_fields: string }>();
+    oidcFieldsRaw = appRow?.oidc_fields;
+  }
   const oidcFields = new Set<string>(
-    JSON.parse(appRow?.oidc_fields ?? "[]") as string[],
+    JSON.parse(oidcFieldsRaw ?? "[]") as string[],
   );
   const wants = (field: string) => oidcFields.has(field);
 
@@ -5961,9 +5970,9 @@ async function buildIdToken(
     amr: string[] | null;
     sid?: string | null;
   },
+  oauthApp?: OAuthAppRow | null,
 ): Promise<string> {
-  const { signIdTokenRS256 } = await import("../lib/jwt");
-  const claims = await buildClaims(user, clientId, scopes, db, issuer);
+  const claims = await buildClaims(user, clientId, scopes, db, issuer, oauthApp);
   claims.iss = issuer;
   claims.aud = clientId;
   if (nonce) claims.nonce = nonce;

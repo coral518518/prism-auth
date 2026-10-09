@@ -8,7 +8,7 @@
 
 import i18n from "./i18n";
 import { StrictMode } from "react";
-import { hydrateRoot } from "react-dom/client";
+import { hydrateRoot, createRoot } from "react-dom/client";
 import {
   QueryClient,
   QueryClientProvider,
@@ -71,9 +71,8 @@ async function start(): Promise<void> {
   });
 
   const router = createBrowserRouter(createRoutes({ qc, api, authStore }));
-
-  hydrateRoot(
-    document.getElementById("root")!,
+  const rootEl = document.getElementById("root")!;
+  const appElement = (
     <StrictMode>
       <QueryClientProvider client={qc}>
         <HydrationBoundary state={initial.queryState}>
@@ -86,8 +85,14 @@ async function start(): Promise<void> {
           </ApiProvider>
         </HydrationBoundary>
       </QueryClientProvider>
-    </StrictMode>,
+    </StrictMode>
   );
+
+  if (serverInitial && rootEl.hasChildNodes()) {
+    hydrateRoot(rootEl, appElement);
+  } else {
+    createRoot(rootEl).render(appElement);
+  }
 }
 
 void start();

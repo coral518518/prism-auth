@@ -17,6 +17,15 @@ import { sha256Hex } from "./crypto";
 import { getConfig } from "./config";
 
 const memoCache = new Map<string, string>();
+let envDisableImageProxy = false;
+
+export function setEnvDisableImageProxy(val: boolean): void {
+  envDisableImageProxy = val;
+}
+
+export function isImageProxyDisabled(): boolean {
+  return envDisableImageProxy;
+}
 
 export function forgetImageProxyMapping(url: string): void {
   memoCache.delete(url);
@@ -70,6 +79,9 @@ export async function proxyImageUrl(
 ): Promise<string | null> {
   if (!url) return null;
   if (url.startsWith("/")) return `${baseUrl}${url}`;
+  if (envDisableImageProxy) {
+    return url;
+  }
   const config = await getConfig(db).catch(() => null);
   if (config?.disable_image_proxy) {
     return url;

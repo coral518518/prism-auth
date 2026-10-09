@@ -2,7 +2,7 @@
 
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { getRsaKeyPair, getConfigValue } from "../lib/config";
+import { getRsaPublicKeyJwk, getConfigValue } from "../lib/config";
 import type { Variables } from "../types";
 import { USER_GRANTABLE_SCOPES } from "../../shared/scopes";
 
@@ -182,19 +182,26 @@ app.get("/security.txt", async (c) => {
 app.get("/change-password", (c) => c.redirect(`${c.env.APP_URL}/profile`, 302));
 
 app.get("/jwks.json", async (c) => {
-  const rsa = await getRsaKeyPair(c.env.KV_SESSIONS);
-  return c.json({
-    keys: [
-      {
-        kty: rsa.publicKeyJwk.kty,
-        use: "sig",
-        alg: "RS256",
-        kid: rsa.kid,
-        n: rsa.publicKeyJwk.n,
-        e: rsa.publicKeyJwk.e,
-      },
-    ],
-  });
+  const rsa = await getRsaPublicKeyJwk(c.env.KV_SESSIONS);
+  return c.json(
+    {
+      keys: [
+        {
+          kty: rsa.publicKeyJwk.kty,
+          use: "sig",
+          alg: "RS256",
+          kid: rsa.kid,
+          n: rsa.publicKeyJwk.n,
+          e: rsa.publicKeyJwk.e,
+        },
+      ],
+    },
+    200,
+    {
+      "Cache-Control":
+        "public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400",
+    },
+  );
 });
 
 export default app;

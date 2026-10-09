@@ -15,7 +15,10 @@ import { sweepExpiredSessions, sweepExpiredOAuthCodes } from "./cron/sessions";
 import { sweepExpiredPowUsed } from "./lib/pow";
 import { sweepExpiredSecurityState } from "./lib/securityState";
 import { purgeAppEventQueue } from "./lib/app-events";
-import { sweepOrphanedImageProxyMappings } from "./lib/proxyImage";
+import {
+  sweepOrphanedImageProxyMappings,
+  setEnvDisableImageProxy,
+} from "./lib/proxyImage";
 import { handleEmailWorker } from "./handlers/email";
 
 import siteRoutes from "./routes/site";
@@ -46,6 +49,13 @@ import proxyRoutes from "./routes/proxy";
 import { ssrHandler } from "./ssr";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+app.use("*", async (c, next) => {
+  if (c.env.DISABLE_IMAGE_PROXY === "true") {
+    setEnvDisableImageProxy(true);
+  }
+  await next();
+});
 
 // Must be registered before secureHeaders/cors so its post-next runs last,
 // overriding the CORP and CORS headers those middlewares set globally.
@@ -141,23 +151,23 @@ export default {
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(runReverification(env.DB));
     ctx.waitUntil(runImapPoll(env, env.KV_CACHE));
-    ctx.waitUntil(purgeAppEventQueue(env.DB).catch(() => {}));
-    ctx.waitUntil(sweepExpiredPowUsed(env.DB).catch(() => {}));
-    ctx.waitUntil(sweepExpiredSecurityState(env.DB).catch(() => {}));
-    ctx.waitUntil(sweepExpiredSessions(env.DB).catch(() => {}));
-    ctx.waitUntil(sweepExpiredOAuthCodes(env.DB).catch(() => {}));
-    ctx.waitUntil(sweepOrphanedImageProxyMappings(env.DB).catch(() => {}));
+    ctx.waitUntil(purgeAppEventQueue(env.DB).catch(() => { }));
+    ctx.waitUntil(sweepExpiredPowUsed(env.DB).catch(() => { }));
+    ctx.waitUntil(sweepExpiredSecurityState(env.DB).catch(() => { }));
+    ctx.waitUntil(sweepExpiredSessions(env.DB).catch(() => { }));
+    ctx.waitUntil(sweepExpiredOAuthCodes(env.DB).catch(() => { }));
+    ctx.waitUntil(sweepOrphanedImageProxyMappings(env.DB).catch(() => { }));
     ctx.waitUntil(
       env.DB.prepare("DELETE FROM avatar_proxy_cache WHERE expires_at <= ?")
         .bind(Math.floor(Date.now() / 1000))
         .run()
-        .catch(() => {}),
+        .catch(() => { }),
     );
     // Both of these do a bounded slice per tick and pick up where they left
     // off — a team with thousands of invite-registered accounts is cleared
     // over several runs rather than one request that would never finish.
-    ctx.waitUntil(reapPendingRegistrations(env, ctx).catch(() => {}));
-    ctx.waitUntil(reapDissolvedTeams(env, ctx).catch(() => {}));
+    ctx.waitUntil(reapPendingRegistrations(env, ctx).catch(() => { }));
+    ctx.waitUntil(reapDissolvedTeams(env, ctx).catch(() => { }));
   },
 
   email: handleEmailWorker,

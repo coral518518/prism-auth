@@ -250,16 +250,8 @@ export async function getConfigValue<K extends keyof SiteConfig>(
   db: D1Database,
   key: K,
 ): Promise<SiteConfig[K]> {
-  const row = await db
-    .prepare("SELECT value FROM site_config WHERE key = ?")
-    .bind(key)
-    .first<{ value: string }>();
-  if (!row) return DEFAULT_CONFIG[key];
-  try {
-    return JSON.parse(row.value) as SiteConfig[K];
-  } catch {
-    return DEFAULT_CONFIG[key];
-  }
+  const config = await getConfig(db);
+  return config[key];
 }
 
 export async function setConfigValue(
@@ -413,10 +405,40 @@ export interface RsaKeyPair {
 
 let cachedRsaKeyPair: RsaKeyPair | null = null;
 let cachedRsaKv: KVNamespace | null = null;
+let cachedRsaPublicJwk: { kid: string; publicKeyJwk: JsonWebKey } | null = null;
+let cachedRsaPublicKv: KVNamespace | null = null;
 
 export function invalidateRsaKeyPairCache(): void {
   cachedRsaKeyPair = null;
   cachedRsaKv = null;
+  cachedRsaPublicJwk = null;
+  cachedRsaPublicKv = null;
+}
+
+export async function getRsaPublicKeyJwk(
+  kv: KVNamespace,
+): Promise<{ kid: string; publicKeyJwk: JsonWebKey }> {
+  if (cachedRsaKeyPair && kv === cachedRsaKv) {
+    return {
+      kid: cachedRsaKeyPair.kid,
+      publicKeyJwk: cachedRsaKeyPair.publicKeyJwk,
+    };
+  }
+  if (cachedRsaPublicJwk && kv === cachedRsaPublicKv) {
+    return cachedRsaPublicJwk;
+  }
+
+  const stored = await kv.get(RSA_KEYPAIR_KEY);
+  if (stored) {
+    const { kid, publicKeyJwk } = JSON.parse(stored) as StoredKeyPair;
+    const pair = { kid, publicKeyJwk };
+    cachedRsaPublicJwk = pair;
+    cachedRsaPublicKv = kv;
+    return pair;
+  }
+
+  const pair = await getRsaKeyPair(kv);
+  return { kid: pair.kid, publicKeyJwk: pair.publicKeyJwk };
 }
 
 export async function getRsaKeyPair(kv: KVNamespace): Promise<RsaKeyPair> {

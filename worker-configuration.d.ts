@@ -26,6 +26,7 @@ interface Env {
   DISABLE_REQUEST_LOGS?: string;
   DISABLE_NOTIFICATIONS?: string;
   DISABLE_IMAGE_PROXY?: string;
+  DISABLE_SSR?: string;
   // Gate the Admin Panel "Reset everything" command. Disabled by default
   // (irreversibly destructive). Set to "true" / "1" / "yes" in
   // wrangler.jsonc vars to expose the button in the admin UI.

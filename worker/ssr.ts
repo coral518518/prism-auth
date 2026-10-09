@@ -128,15 +128,24 @@ export async function ssrHandler(
     return new Response("SSR template missing", { status: 500 });
   }
 
-  // Admin kill switch: serve the bare client template and let the bundle
+  // Admin kill switch or env override: serve the bare client template and let the bundle
   // hydrate on its own. Mirrors the catch-block fallback further down.
-  if (await getConfigValue(c.env.DB, "disable_ssr")) {
+  if (
+    c.env.DISABLE_SSR === "true" ||
+    (await getConfigValue(c.env.DB, "disable_ssr"))
+  ) {
     return new Response(
       template
         .replace("<!--app-head-->", "")
         .replace("<!--app-html-->", "")
         .replace("<!--app-state-->", ""),
-      { headers: { "Content-Type": "text/html; charset=utf-8" } },
+      {
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control":
+            "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400",
+        },
+      },
     );
   }
 

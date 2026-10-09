@@ -2321,10 +2321,10 @@ app.post("/token", async (c) => {
     // pass the checks above, and only the one that actually removes the row
     // gets to mint tokens.
     // Consume code and load user in a single D1 batch round-trip!
-    const [consumed, userResult] = await c.env.DB.batch<[D1Result, D1Result<UserRow>]>([
+    const [consumed, userResult] = (await c.env.DB.batch([
       c.env.DB.prepare("DELETE FROM oauth_codes WHERE code = ?").bind(codeRow.code),
       c.env.DB.prepare("SELECT * FROM users WHERE id = ? AND kind = 'user'").bind(codeRow.user_id),
-    ]);
+    ])) as [D1Result, D1Result<UserRow>];
     if (consumed.meta.changes !== 1)
       return c.json({ error: "invalid_grant" }, 400);
 

@@ -34,17 +34,19 @@ function loadOpenPGP(): Promise<OpenPGP> {
   if (!openpgpPromise) openpgpPromise = import("openpgp");
   return openpgpPromise;
 }
-import { useRef, useState } from "react";
+import { lazy, Suspense, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { startAuthentication } from "@simplewebauthn/browser";
 import { useTranslation } from "react-i18next";
 import { ApiError } from "../lib/api";
 import { useApi } from "../lib/api-context";
 import { AuthShell } from "../components/AuthShell";
-import { Captcha } from "../components/Captcha";
 import { PasswordInput } from "../components/PasswordInput";
 import type { CaptchaValue } from "../components/Captcha";
+
+const LazyCaptcha = lazy(() =>
+  import("../components/Captcha").then((m) => ({ default: m.Captcha })),
+);
 import { ProviderButton } from "../components/ProviderButton";
 import { useAuthStore } from "../store/auth";
 import type { SessionUser } from "../lib/api";
@@ -179,6 +181,7 @@ export function Login() {
     setPasskeyLoading(true);
     try {
       const options = await api.passkeyAuthBegin(identifier || undefined);
+      const { startAuthentication } = await import("@simplewebauthn/browser");
       const response = await startAuthentication({
         optionsJSON: options as Parameters<
           typeof startAuthentication
@@ -344,12 +347,14 @@ export function Login() {
           )}
 
           {site && site.captcha.captcha_providers.length > 0 && (
-            <Captcha
-              key={captchaKey}
-              captcha={site.captcha}
-              onVerified={setCaptcha}
-              onError={setError}
-            />
+            <Suspense fallback={<Spinner size="tiny" />}>
+              <LazyCaptcha
+                key={captchaKey}
+                captcha={site.captcha}
+                onVerified={setCaptcha}
+                onError={setError}
+              />
+            </Suspense>
           )}
 
           {error && (

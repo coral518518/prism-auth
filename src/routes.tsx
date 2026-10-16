@@ -10,7 +10,6 @@
 
 import { redirect, type RouteObject } from "react-router-dom";
 import type { QueryClient } from "@tanstack/react-query";
-import { Layout } from "./components/Layout";
 import type { AuthStore } from "./store/auth";
 import type { ApiClient } from "./lib/api";
 
@@ -277,8 +276,9 @@ export function createRoutes(ctx: RouteContext): RouteObject[] {
 
     // ── Protected app shell ─────────────────────────────────────────────────
     {
-      // Element is eager (Layout is on every authenticated page).
-      Component: Layout,
+      // Element is lazy-loaded so it does not inflate public/auth page bundles.
+      lazy: () =>
+        import("./components/Layout").then((m) => ({ Component: m.Layout })),
       errorElement: <ErrorElement />,
       loader: async ({ request }) => {
         requireAuthLoader(request);

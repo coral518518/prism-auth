@@ -22,7 +22,6 @@ import {
   PlugConnectedRegular,
   WarningRegular,
 } from "@fluentui/react-icons";
-import { startAuthentication } from "@simplewebauthn/browser";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -298,6 +297,7 @@ export function Authorize() {
     setPasskeyLoading(true);
     try {
       const beginData = await api.passkeyVerifyBegin();
+      const { startAuthentication } = await import("@simplewebauthn/browser");
       const authResponse = await startAuthentication({
         optionsJSON: beginData as Parameters<
           typeof startAuthentication

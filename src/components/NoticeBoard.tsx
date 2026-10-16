@@ -26,7 +26,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { type Notice, type NoticeLevel } from "../lib/api";
 import { useApi } from "../lib/api-context";
-import { renderMarkdown } from "../lib/markdown";
 
 const useStyles = makeStyles({
   board: {
@@ -63,9 +62,15 @@ function NoticeBody({ markdown }: { markdown: string }) {
   useEffect(() => {
     let cancelled = false;
     // renderMarkdown registers any <img> with the image proxy, so it is async.
-    void renderMarkdown(markdown).then((out) => {
-      if (!cancelled) setHtml(out);
-    });
+    // Dynamically import markdown parser so marked and dompurify are only
+    // loaded on-demand when a notice actually exists.
+    void import("../lib/markdown")
+      .then(({ renderMarkdown }) => {
+        if (!cancelled) return renderMarkdown(markdown);
+      })
+      .then((out) => {
+        if (!cancelled && out) setHtml(out);
+      });
     return () => {
       cancelled = true;
     };

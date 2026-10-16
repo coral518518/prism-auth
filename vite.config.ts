@@ -13,31 +13,28 @@ export default defineConfig(({ isSsrBuild }) => ({
     rollupOptions: isSsrBuild
       ? {}
       : {
-          output: {
-            manualChunks(id) {
-              if (id.includes("node_modules")) {
-                if (
-                  id.includes("react-dom") ||
-                  id.includes("react/") ||
-                  id.includes("react-router")
-                ) {
-                  return "vendor-react";
-                }
-                if (id.includes("@fluentui/react-icons")) {
-                  return "vendor-fluent-icons";
-                }
-                if (id.includes("@fluentui") || id.includes("@griffel")) {
-                  return "vendor-fluent";
-                }
-                if (id.includes("@tanstack")) {
-                  return "vendor-query";
-                }
-                if (id.includes("i18next")) {
-                  return "vendor-i18n";
-                }
+        output: {
+          manualChunks(id) {
+            if (id.includes("node_modules")) {
+              if (
+                id.includes("react-dom") ||
+                id.includes("react/") ||
+                id.includes("react-router")
+              ) {
+                return "vendor-react";
               }
-            },
+              if (id.includes("@fluentui/react-icons")) {
+                return "vendor-fluent-icons";
+              }
+              if (id.includes("@tanstack")) {
+                return "vendor-query";
+              }
+              if (id.includes("i18next")) {
+                return "vendor-i18n";
+              }
+            }
           },
         },
+      },
   },
 }));
